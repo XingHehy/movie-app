@@ -1,0 +1,7 @@
+services:
+  movie-app:
+    image: movie-app
+    container_name: movie-app
+    ports:
+      - "8585:3000"
+    restart: always

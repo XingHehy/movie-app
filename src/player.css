@@ -1,0 +1,88 @@
+/* 自定义滚动条 */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: #1e293b;
+    border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #3b82f6;
+    border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #2563eb;
+}
+
+/* 无滚动条 */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* 动画 */
+.animate-fade-in {
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Plyr 自定义样式 */
+.plyr {
+    --plyr-color-main: #3b82f6;
+    --plyr-control-icon-size: 18px;
+    --plyr-video-control-background-hover: rgba(59, 130, 246, 0.2);
+}
+
+.plyr__progress__buffer {
+    background: rgba(59, 130, 246, 0.2);
+}
+
+.plyr__volume {
+    width: 80px;
+}
+
+/* Plyr视频容器 */
+.plyr-video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+/* 确保视频元素始终可见 */
+.plyr video {
+    background: #000;
+}
+
+/* 移除poster遮挡 */
+.plyr--playing .plyr__poster {
+    display: none !important;
+}
+
+.plyr__poster {
+    background-size: cover;
+    background-position: center;
+}
+
+/* 确保视频在播放时完全可见 */
+.plyr--playing video {
+    opacity: 1 !important;
+    visibility: visible !important;
+}
