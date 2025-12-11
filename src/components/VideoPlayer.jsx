@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Hls from 'hls.js';
 import Plyr from 'plyr';
 import 'plyr/dist/plyr.css';
-import { ArrowLeft, AlertCircle, Loader2 } from 'lucide-react';
+import { ChevronLeft, AlertCircle, Loader2 } from 'lucide-react';
 import { hlsInstances, plyrInstances, stopAllPlayers } from '../utils/playerManager.js';
 import '../player.css';
 
@@ -14,6 +14,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
   const hlsRef = useRef(null);
   const plyrRef = useRef(null);
   const isInitialized = useRef(false);
+  const [retryKey, setRetryKey] = useState(0);
 
   // 初始化播放器
   useEffect(() => {
@@ -109,7 +110,8 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
         resetOnEnd: false,
         keyboard: { focused: true, global: true },
         tooltips: { controls: true, seek: true },
-        speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] }
+        speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
+        fullscreen: { enabled: true, fallback: true, iosNative: true }
       });
 
       plyrRef.current = plyr;
@@ -117,6 +119,57 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
       // 监听Plyr事件
       plyr.on('ready', () => {
         setIsLoading(false);
+
+        // 拦截全屏按钮点击事件，优先使用 iOS 原生全屏
+        // 使用 capture 阶段捕获事件，并在检测到 iPad/iOS 时阻止 Plyr 的默认行为
+        const fullscreenBtn = playerContainerRef.current?.querySelector('button[data-plyr="fullscreen"]');
+        
+        if (fullscreenBtn) {
+          fullscreenBtn.addEventListener('click', (e) => {
+            // 检测 iPad (iPadOS 13+ 默认显示为 Macintosh) 或其他 iOS 设备
+            const isIpad = /Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints && navigator.maxTouchPoints > 1;
+            const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+            if ((isIpad || isIos) && video.webkitEnterFullscreen) {
+              // 阻止 Plyr 的默认全屏处理
+              e.preventDefault();
+              e.stopPropagation();
+              e.stopImmediatePropagation();
+              
+              // 调用原生全屏
+              try {
+                video.webkitEnterFullscreen();
+              } catch (err) {
+                console.warn('调用原生全屏失败:', err);
+                // 如果原生失败，允许冒泡回 Plyr 处理（虽然通常已经停止冒泡了，这里做个日志）
+              }
+            }
+          }, true); // useCapture = true 确保先于 Plyr 执行
+        }
+
+        // 拦截双击全屏事件
+        const plyrContainer = playerContainerRef.current?.querySelector('.plyr');
+        if (plyrContainer) {
+          plyrContainer.addEventListener('dblclick', (e) => {
+            // 检测 iPad (iPadOS 13+ 默认显示为 Macintosh) 或其他 iOS 设备
+            const isIpad = /Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints && navigator.maxTouchPoints > 1;
+            const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+            if ((isIpad || isIos) && video.webkitEnterFullscreen) {
+              // 阻止 Plyr 的默认双击全屏处理
+              e.preventDefault();
+              e.stopPropagation();
+              e.stopImmediatePropagation();
+              
+              // 调用原生全屏
+              try {
+                video.webkitEnterFullscreen();
+              } catch (err) {
+                console.warn('调用原生全屏失败:', err);
+              }
+            }
+          }, true); // useCapture = true
+        }
       });
 
       plyr.on('canplay', () => {
@@ -165,7 +218,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
 
       isInitialized.current = false;
     };
-  }, [src, poster]);
+  }, [src, poster, retryKey]);
 
   return (
     <div className="animate-fade-in w-full">
@@ -175,10 +228,10 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
             stopAllPlayers();
             onBack();
           }}
-          className="flex items-center text-slate-400 hover:text-white transition-colors group px-3 py-1.5 rounded-lg hover:bg-slate-800"
+          className="flex items-center justify-center w-8 h-8 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-all"
+          aria-label="返回"
         >
-          <ArrowLeft size={18} className="mr-2 group-hover:-translate-x-1 transition-transform" />
-          <span className="font-medium">返回列表</span>
+          <ChevronLeft size={24} />
         </button>
 
         <div className="flex items-center gap-1.5 text-amber-500 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20 text-xs">
@@ -210,7 +263,11 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
             <AlertCircle size={48} className="text-red-500 mb-4" />
             <p className="text-slate-300 text-lg">{error}</p>
             <button
-              onClick={() => window.location.reload()}
+              onClick={() => {
+                setError(null);
+                setIsLoading(true);
+                setRetryKey(k => k + 1);
+              }}
               className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
             >
               重试
@@ -231,7 +288,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
               {sourceDesc && (
                 <div className="absolute top-full mt-2 left-0 z-[100] pointer-events-none invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-all duration-200">
                   <div className="bg-slate-900 text-slate-200 text-[10px] px-2 py-1 rounded border border-white/10 whitespace-nowrap shadow-xl max-w-xs">
-                    {sourceDesc}
+                    {sourceDesc?.replace(/&nbsp;/g, ' ')}
                   </div>
                   {/* 小三角 */}
                   <div className="w-2 h-2 bg-slate-900 border-l border-t border-white/10 absolute -top-1 left-3 rotate-45"></div>

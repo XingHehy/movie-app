@@ -1,4 +1,5 @@
 import express from "express";
+import "dotenv/config";
 import axios from "axios";
 import cors from "cors";
 import path from "path";

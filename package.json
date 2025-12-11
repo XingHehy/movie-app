@@ -5,15 +5,15 @@
     "type": "module",
     "main": "server.js",
     "scripts": {
-        "dev": "vite",
+        "dev": "vite --host",
         "build": "vite build",
         "start": "node server.js",
         "server-dev": "nodemon server.js"
     },
     "dependencies": {
-        "artplayer": "^5.3.0",
         "axios": "^1.6.0",
         "cors": "^2.8.5",
+        "dotenv": "^17.2.3",
         "express": "^4.18.2",
         "express-session": "^1.18.2",
         "hls.js": "^1.6.15",
@@ -22,8 +22,7 @@
         "lucide-react": "^0.292.0",
         "plyr": "^3.8.3",
         "react": "^18.2.0",
-        "react-dom": "^18.2.0",
-        "react-player": "^3.4.0"
+        "react-dom": "^18.2.0"
     },
     "devDependencies": {
         "@vitejs/plugin-react": "^4.2.0",

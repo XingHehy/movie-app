@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ChevronLeft } from 'lucide-react';
 import { api, setupApi } from './api.js';
 import { stopAllPlayers } from './utils/playerManager.js';
 import LoginScreen from './components/LoginScreen.jsx';
@@ -81,6 +82,18 @@ export default function App() {
       }).catch(err => console.error("Failed to fetch sources:", err));
     }
   }, [isAuthenticated]);
+
+  // 动态更新页面标题
+  useEffect(() => {
+    const baseTitle = "极影 - 全网聚合搜索";
+    if (view === 'search_results' && searchQuery) {
+      document.title = `搜索 ${searchQuery} - ${baseTitle}`;
+    } else if (view === 'player' && currentVideo) {
+      document.title = `${currentVideo.vod_name} - ${baseTitle}`;
+    } else {
+      document.title = baseTitle;
+    }
+  }, [view, searchQuery, currentVideo]);
 
   const handleLogin = () => {
     // Session 已在服务器端设置，只需更新前端状态
@@ -280,6 +293,27 @@ export default function App() {
           />
         ) : (
           <>
+            {view === 'search_results' && (
+              <div className="flex items-center gap-4 mb-6 animate-fade-in">
+                <button
+                  onClick={() => {
+                    setView('list');
+                    setSearchQuery('');
+                    setIsSearching(false);
+                    setVideos([]); // 清空搜索结果，让 useEffect 重新加载列表数据
+                  }}
+                  className="flex items-center justify-center w-8 h-8 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-all"
+                  aria-label="返回列表"
+                >
+                  <ChevronLeft size={24} />
+                </button>
+                <div className="h-6 w-px bg-white/10"></div>
+                <h2 className="text-xl font-bold text-white truncate">
+                  搜索 <span className="text-blue-400">{searchQuery}</span> 的结果
+                </h2>
+              </div>
+            )}
+
             <VideoList
               videos={videos}
               loading={loading}

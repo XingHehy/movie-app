@@ -51,7 +51,7 @@ const VideoDetail = ({
           </h3>
           <p className="text-sm text-slate-400 leading-relaxed">
             {currentVideo.vod_content
-              ? currentVideo.vod_content.replace(/<[^>]+>/g, '')
+              ? currentVideo.vod_content.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ')
               : '暂无简介...'}
           </p>
           <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-500">
