@@ -14,18 +14,49 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = 3000;
 
+// --- 日志工具 ---
+const formatTs = () => {
+  const d = new Date();
+  const pad = (n) => n.toString().padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const MM = pad(d.getMonth() + 1);
+  const dd = pad(d.getDate());
+  const hh = pad(d.getHours());
+  const mm = pad(d.getMinutes());
+  const ss = pad(d.getSeconds());
+  return `${yyyy}-${MM}-${dd} ${hh}:${mm}:${ss}`;
+};
+
+const logger = {
+  info: (...msg) => console.log(`${formatTs()} - INFO -`, ...msg),
+  warn: (...msg) => console.warn(`${formatTs()} - WARN -`, ...msg),
+  error: (...msg) => console.error(`${formatTs()} - ERROR -`, ...msg),
+};
+
 // --- Redis 配置 ---
 const REDIS_URL = process.env.REDIS_URL || "redis://user:password@localhost:6379/5";
 
-const redis = new Redis(REDIS_URL);
+const redis = new Redis(REDIS_URL, {
+  // 避免错误凭证时不断重连
+  retryStrategy: () => null,
+  maxRetriesPerRequest: 1,
+  enableReadyCheck: true,
+});
 
-redis.on("connect", () => {
-  console.log("✅ Redis connected successfully");
+// 仅在认证完成后触发
+redis.once("ready", () => {
+  logger.info("✅ Redis ready");
   initializeSources(); // 连接成功后初始化源站数据
 });
 
 redis.on("error", (err) => {
-  console.error("❌ Redis connection error:", err);
+  logger.error("❌ Redis connection error:", err?.message || err);
+});
+
+redis.on("end", () => {
+  if (redis.status !== "ready") {
+    logger.warn("⚠️ Redis closed, using local fallback only.");
+  }
 });
 
 // --- 初始化源站列表 (兜底/默认配置) ---
@@ -38,13 +69,13 @@ async function initializeSources() {
   try {
     const exists = await redis.exists("video:source");
     if (!exists) {
-      console.log("ℹ️ Initializing Redis with default sources...");
+      logger.info("ℹ️ Initializing Redis with default sources...");
       await redis.set("video:source", JSON.stringify(INITIAL_SOURCES));
     } else {
-      console.log("ℹ️ Redis sources already exist, skipping initialization.");
+      logger.info("ℹ️ Redis sources already exist, skipping initialization.");
     }
   } catch (error) {
-    console.error("⚠️ Failed to initialize sources (Redis error), will use local fallback:", error.message);
+    logger.error("⚠️ Failed to initialize sources (Redis error), will use local fallback:", error.message);
   }
 }
 
@@ -53,18 +84,18 @@ async function getSourceConfig() {
   try {
     // 如果 Redis 未连接或连接断开，直接返回兜底配置
     if (redis.status !== 'ready') {
-      console.warn("⚠️ Redis not ready, using local fallback sources.");
+      logger.warn("⚠️ Redis not ready, using local fallback sources.");
       return INITIAL_SOURCES;
     }
 
     const data = await redis.get("video:source");
     if (!data) {
-      console.log("ℹ️ Redis sources not found, using local fallback.");
+      logger.info("ℹ️ Redis sources not found, using local fallback.");
       return INITIAL_SOURCES;
     }
     return JSON.parse(data);
   } catch (error) {
-    console.error("Failed to fetch sources from Redis, using fallback:", error.message);
+    logger.error("Failed to fetch sources from Redis, using fallback:", error.message);
     return INITIAL_SOURCES;
   }
 }
@@ -73,6 +104,22 @@ async function getSourceConfig() {
 const SITE_PASSWORD = process.env.SITE_PASSWORD || "666888"; // 默认密码，可通过环境变量覆盖
 const JWT_SECRET = process.env.JWT_SECRET || "video!@#$%^&*()"; // JWT 密钥
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "2h"; // JWT 过期时间（默认2小时）
+
+// 从 Redis 获取访问密码，失败或不存在时回退到环境变量
+async function getSitePassword() {
+  if (redis.status === "ready") {
+    try {
+      const redisPwd = await redis.get("video:password");
+      if (redisPwd) return redisPwd;
+      logger.info("ℹ️ Redis password not found, using SITE_PASSWORD fallback.");
+    } catch (err) {
+      logger.warn("⚠️ Failed to read password from Redis, using fallback:", err.message);
+    }
+  } else {
+    logger.warn("⚠️ Redis not ready, using SITE_PASSWORD fallback.");
+  }
+  return SITE_PASSWORD;
+}
 
 // 开启 CORS 允许前端跨域调试
 app.use(cors({
@@ -129,11 +176,14 @@ app.use('/api', (req, res, next) => {
 
 // --- API 路由 ---
 
-app.post("/api/login", (req, res) => {
+app.post("/api/login", async (req, res) => {
   const { password } = req.body;
 
+  const targetPassword = await getSitePassword();
+
   // 验证密码
-  if (password && password === SITE_PASSWORD) {
+  if (password && password === targetPassword) {
+    logger.info(`Login success`);
     const token = generateToken({
       authenticated: true,
       iat: Math.floor(Date.now() / 1000)
@@ -146,6 +196,7 @@ app.post("/api/login", (req, res) => {
       expiresIn: JWT_EXPIRES_IN
     });
   } else {
+    logger.warn(`Login failed with password: ${password}`);
     setTimeout(() => {
       res.status(401).json({ success: false, error: "Incorrect password" });
     }, 500);
@@ -197,7 +248,7 @@ app.get("/api/video", async (req, res) => {
   if (ids) params.ids = ids;
 
   try {
-    console.log(`[Proxy] Requesting ${key} with params:`, params);
+    logger.info(`[Proxy] Requesting ${key} with params:`, params);
 
     const response = await axios.get(targetApi, {
       params: params,
@@ -210,7 +261,7 @@ app.get("/api/video", async (req, res) => {
 
     res.json(response.data);
   } catch (error) {
-    console.error(`[Proxy Error] ${key}:`, error.message);
+    logger.error(`[Proxy Error] ${key}:`, error.message);
     res.status(502).json({
       code: 502,
       msg: "源站请求失败",
@@ -230,6 +281,6 @@ app.get('*', (req, res) => {
 
 // 启动服务器
 app.listen(PORT, () => {
-  console.log(`\n🚀 极影服务器已启动: http://localhost:${PORT}`);
-  console.log(`👉 接口地址: http://localhost:${PORT}/api/video`);
+  logger.info(`🚀 极影服务器已启动: http://localhost:${PORT}`);
+  logger.info(`👉 接口地址: http://localhost:${PORT}/api/video`);
 });

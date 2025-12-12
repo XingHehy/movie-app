@@ -36,10 +36,37 @@
     animation: fadeInDown 0.3s ease-out forwards;
 }
 
+/* 小丑弹窗动画 */
+@keyframes clownPop {
+    0% {
+        opacity: 0;
+        transform: scale(0.5) translateY(100px);
+    }
+
+    50% {
+        opacity: 1;
+        transform: scale(1.2) translateY(-20px);
+    }
+
+    70% {
+        transform: scale(0.9);
+    }
+
+    100% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.animate-clown-pop {
+    animation: clownPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
 /* 隐藏滚动条但保留功能 */
 .no-scrollbar::-webkit-scrollbar {
     display: none;
 }
+
 .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
@@ -50,13 +77,16 @@
     height: 6px;
     width: 6px;
 }
+
 .thin-scrollbar::-webkit-scrollbar-track {
     background: transparent;
 }
+
 .thin-scrollbar::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.1);
     border-radius: 3px;
 }
+
 .thin-scrollbar::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.3);
 }

@@ -8,6 +8,7 @@ const LoginScreen = ({ onLogin }) => {
   const [error, setError] = useState(null);
   const [toastMessage, setToastMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showClown, setShowClown] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -15,6 +16,7 @@ const LoginScreen = ({ onLogin }) => {
 
     setLoading(true);
     setError(null);
+    setShowClown(false);
 
     try {
       const data = await api.login(password);
@@ -24,11 +26,15 @@ const LoginScreen = ({ onLogin }) => {
       } else {
         setError("密码错误，请重试");
         setToastMessage("密码错误，请重试");
+        setShowClown(true);
+        setTimeout(() => setShowClown(false), 3000);
       }
     } catch (err) {
       console.error('登录失败:', err);
       setError("验证失败，请稍后重试");
       setToastMessage("验证失败，请稍后重试");
+      setShowClown(true);
+      setTimeout(() => setShowClown(false), 3000);
     } finally {
       setLoading(false);
     }
@@ -74,6 +80,19 @@ const LoginScreen = ({ onLogin }) => {
         </form>
       </div>
       <p className="mt-8 text-slate-600 text-xs">© 2025 极影</p>
+
+      {/* 小丑动效 */}
+      {showClown && (
+        <div className="fixed inset-0 flex items-center justify-center z-[100] pointer-events-none bg-black/20 backdrop-blur-[1px] transition-all duration-300">
+          <div className="relative animate-clown-pop">
+            <img
+              src="/joker.gif"
+              alt="joker"
+              className="w-[180px] h-[180px] object-contain filter drop-shadow-2xl"
+            />
+          </div>
+        </div>
+      )}
 
       <Toast
         message={toastMessage}
