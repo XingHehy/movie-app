@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { Lock, AlertCircle, Loader2 } from 'lucide-react';
 import { api } from '../api.js';
+import Toast from './Toast.jsx';
 
 const LoginScreen = ({ onLogin }) => {
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
+  const [toastMessage, setToastMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
@@ -21,10 +23,12 @@ const LoginScreen = ({ onLogin }) => {
         onLogin(); // 不再传递密码
       } else {
         setError("密码错误，请重试");
+        setToastMessage("密码错误，请重试");
       }
     } catch (err) {
       console.error('登录失败:', err);
       setError("验证失败，请稍后重试");
+      setToastMessage("验证失败，请稍后重试");
     } finally {
       setLoading(false);
     }
@@ -70,6 +74,11 @@ const LoginScreen = ({ onLogin }) => {
         </form>
       </div>
       <p className="mt-8 text-slate-600 text-xs">© 2025 极影</p>
+
+      <Toast
+        message={toastMessage}
+        onClose={() => setToastMessage("")}
+      />
     </div>
   );
 };

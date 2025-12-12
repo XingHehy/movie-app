@@ -177,7 +177,7 @@ app.get("/api/sources", async (req, res) => {
 });
 
 app.get("/api/video", async (req, res) => {
-  const { key, ...params } = req.query;
+  const { key, ac, t, pg, wd, h, ids } = req.query;
 
   const sources = await getSourceConfig();
   const source = sources.find(s => s.key === key);
@@ -187,6 +187,14 @@ app.get("/api/video", async (req, res) => {
   }
 
   const targetApi = source.url;
+
+  // Construct params object with only allowed keys
+  const params = { ac };
+  if (t) params.t = t;
+  if (pg) params.pg = pg;
+  if (wd) params.wd = wd;
+  if (h) params.h = h;
+  if (ids) params.ids = ids;
 
   try {
     console.log(`[Proxy] Requesting ${key} with params:`, params);
@@ -214,6 +222,11 @@ app.get("/api/video", async (req, res) => {
 // --- 静态文件服务 (可选) ---
 // 如果你打包了 React 项目 (npm run build)，将 dist 目录放在 server.js 同级
 app.use(express.static(path.join(__dirname, 'dist')));
+
+// SPA 路由支持：任何未处理的请求返回 index.html
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
 
 // 启动服务器
 app.listen(PORT, () => {

@@ -146,6 +146,27 @@ export const api = {
         return handleResponse(res);
     },
 
+    getVideoDetail: async (sourceKey, ids) => {
+        if (tokenManager.isExpiringSoon()) {
+            try {
+                await api.refreshToken();
+            } catch (err) {
+                console.warn('Token refresh failed:', err);
+            }
+        }
+
+        const url = new URL(`${API_BASE_URL}/video`);
+        url.searchParams.append('key', sourceKey);
+        url.searchParams.append('ac', 'detail');
+        url.searchParams.append('ids', ids);
+
+        const res = await fetch(url.toString(), {
+            headers: getAuthHeaders(),
+            credentials: 'omit'
+        });
+        return handleResponse(res);
+    },
+
     searchVideos: async (sourceKey, keyword, signal) => {
         // 检查 token 是否即将过期，自动刷新
         if (tokenManager.isExpiringSoon()) {
