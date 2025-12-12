@@ -62,7 +62,7 @@ const Header = ({
             {/* 资源源选择器 (仅在列表页显示) */}
             {!isSearching && view === 'list' && currentSource && (
                 <div className="border-t border-white/5 bg-black/20 relative">
-                    <div className="max-w-7xl mx-auto px-4 py-2 overflow-x-auto no-scrollbar flex items-center gap-2">
+                    <div className="max-w-7xl mx-auto px-4 py-2 overflow-x-auto thin-scrollbar flex items-center gap-2">
                         <span className="text-xs text-slate-500 whitespace-nowrap mr-2">数据源:</span>
                         {sources.map(s => (
                             <div key={s.key} className="relative flex-shrink-0">

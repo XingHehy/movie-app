@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 简单的淡入动画 */
+/* 简单的淡入动画 (从下往上) */
 @keyframes fadeIn {
     from {
         opacity: 0;
@@ -19,6 +19,23 @@
     animation: fadeIn 0.3s ease-out forwards;
 }
 
+/* 从上往下淡入 */
+@keyframes fadeInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-fade-in-down {
+    animation: fadeInDown 0.3s ease-out forwards;
+}
+
 /* 隐藏滚动条但保留功能 */
 .no-scrollbar::-webkit-scrollbar {
     display: none;
@@ -26,4 +43,20 @@
 .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+}
+
+/* 自定义细滚动条 */
+.thin-scrollbar::-webkit-scrollbar {
+    height: 6px;
+    width: 6px;
+}
+.thin-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+.thin-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+.thin-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
 }

@@ -7,11 +7,13 @@ import Header from './components/Header.jsx';
 import VideoList from './components/VideoList.jsx';
 import VideoDetail from './components/VideoDetail.jsx';
 import Pagination from './components/Pagination.jsx';
+import Toast from './components/Toast.jsx';
 import './player.css';
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authPassword, setAuthPassword] = useState("");
+  const [toastMessage, setToastMessage] = useState("");
 
   const [sources, setSources] = useState([]);
   const [currentSource, setCurrentSource] = useState(null);
@@ -225,7 +227,7 @@ export default function App() {
 
     const eps = parsePlayUrl(v.vod_play_url);
     if (eps.length === 0) {
-      alert("该资源暂无播放地址");
+      setToastMessage("该资源暂无播放地址");
       return;
     }
 
@@ -339,6 +341,11 @@ export default function App() {
           本站不提供任何视频存储和制作服务，所有内容均来源于互联网，仅提供Web页面浏览服务。若本站收录内容无意侵犯了贵司版权，请联系源站删除。
         </p>
       </footer>
+
+      <Toast
+        message={toastMessage}
+        onClose={() => setToastMessage("")}
+      />
     </div>
   );
 }
