@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import VideoList from '../components/VideoList';
 import Pagination from '../components/Pagination';
 import { api } from '../api';
 
 export default function Home({ currentSource }) {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const page = parseInt(searchParams.get('page')) || 1;
+  const [page, setPage] = useState(1);
 
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -44,7 +43,7 @@ export default function Home({ currentSource }) {
   };
 
   const handlePageChange = (newPage) => {
-    setSearchParams({ page: newPage });
+    setPage(newPage);
     window.scrollTo(0, 0);
   };
 

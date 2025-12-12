@@ -7,7 +7,7 @@ import { api } from '../api';
 export default function Search({ sources }) {
   const { keyword } = useParams();
   const [videos, setVideos] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [searchProgress, setSearchProgress] = useState("");
   const navigate = useNavigate();
   const searchAbortController = useRef(null);
