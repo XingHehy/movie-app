@@ -183,7 +183,7 @@ export const api = {
         url.searchParams.append('wd', keyword);
 
         const res = await fetch(url.toString(), {
-            headers: getAuthHeaders(), // 携带 JWT token
+            headers: getAuthHeaders(),
             credentials: 'omit',
             signal
         });

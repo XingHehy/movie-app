@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import VideoList from '../components/VideoList';
 import Pagination from '../components/Pagination';
 import { api } from '../api';
+import { stopAllPlayers } from '../utils/playerManager';
 
 export default function Home({ currentSource }) {
   const [page, setPage] = useState(1);
@@ -48,6 +49,7 @@ export default function Home({ currentSource }) {
   };
 
   const handleVideoClick = (v) => {
+    stopAllPlayers();
     navigate(`/play/${v.sourceKey}/${v.vod_id}`, { state: { video: v } });
   };
 

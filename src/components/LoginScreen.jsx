@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Lock, AlertCircle, Loader2 } from 'lucide-react';
 import { api } from '../api.js';
 import Toast from './Toast.jsx';
@@ -9,6 +9,24 @@ const LoginScreen = ({ onLogin }) => {
   const [toastMessage, setToastMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [showClown, setShowClown] = useState(false);
+
+  // 预加载小丑图片 - 在浏览器空闲时进行，不影响初始加载
+  useEffect(() => {
+    const preloadImage = () => {
+      const img = new Image();
+      img.src = "/joker.gif";
+    };
+
+    // 使用requestIdleCallback确保在浏览器空闲时才预加载
+    if (window.requestIdleCallback) {
+      const idleCallbackId = window.requestIdleCallback(preloadImage);
+      return () => window.cancelIdleCallback(idleCallbackId);
+    } else {
+      // 兼容不支持requestIdleCallback的浏览器
+      const timeoutId = setTimeout(preloadImage, 1000);
+      return () => clearTimeout(timeoutId);
+    }
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

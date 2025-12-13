@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import jwt from 'jsonwebtoken';
 import Redis from 'ioredis';
 import { log } from "console";
+import https from 'https';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -61,8 +62,7 @@ redis.on("end", () => {
 
 // --- 初始化源站列表 (兜底/默认配置) ---
 const INITIAL_SOURCES = [
-  { key: "ikunzy", name: "爱坤资源", desc: "主打清晰度", url: "https://ikunzyapi.com/api.php/provide/vod/from/ikm3u8/at/json" },
-  { key: "bdzy", name: "百度资源", desc: "老牌劲旅，主打稳定", url: "https://api.apibdzy.com/api.php/provide/vod/from/dbm3u8/at/json/" },
+  { key: "bdzy", name: "百度资源", desc: "老牌劲旅，主打稳定", url: "https://api.apibdzy.com/api.php/provide/vod/from/dbm3u8/at/json/" }
 ];
 
 async function initializeSources() {
@@ -247,27 +247,61 @@ app.get("/api/video", async (req, res) => {
   if (h) params.h = h;
   if (ids) params.ids = ids;
 
-  try {
-    logger.info(`[Proxy] Requesting ${key} with params:`, params);
+  // 创建HTTPS代理配置
+  const httpsAgent = new https.Agent({
+    keepAlive: true,
+    rejectUnauthorized: false, // 忽略SSL证书错误（仅用于开发环境或无法解决证书问题的情况）
+    timeout: 10000
+  });
 
-    const response = await axios.get(targetApi, {
-      params: params,
-      timeout: 10000,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      },
-    });
+  // 重试逻辑
+  const MAX_RETRIES = 2;
+  let lastError;
 
-    res.json(response.data);
-  } catch (error) {
-    logger.error(`[Proxy Error] ${key}:`, error.message);
-    res.status(502).json({
-      code: 502,
-      msg: "源站请求失败",
-      list: [],
-    });
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      logger.info(`[Video] Requesting ${key} (attempt ${attempt + 1}) with params:`, params);
+
+      const response = await axios.get(targetApi, {
+        params: params,
+        timeout: 6000, // 增加超时时间
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
+          "Accept": "application/json, text/plain, */*",
+          "Accept-Language": "zh-CN,zh;q=0.9",
+          "Accept-Encoding": "gzip, deflate, br"
+        },
+        httpsAgent: httpsAgent,
+        decompress: true
+      });
+
+      logger.info(`[Video] ${key} request successful (attempt ${attempt + 1})`);
+      res.json(response.data);
+      return;
+    } catch (error) {
+
+      lastError = error;
+      logger.error(`[Video Error] ${key} (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`,
+        error.message,
+        error.code ? `Code: ${error.code}` : '',
+        error.response ? `Status: ${error.response.status}` : '');
+
+      // 如果不是最后一次尝试，等待一段时间后重试
+      if (attempt < MAX_RETRIES) {
+        logger.info(`[Video] Retrying ${key} in 1 second...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
   }
+
+  // 所有重试都失败
+  logger.error(`[Video Error] ${key}: All ${MAX_RETRIES + 1} attempts failed`);
+  res.status(502).json({
+    code: 502,
+    msg: `源站请求失败 (${lastError?.message || '未知错误'})`,
+    list: [],
+  });
 });
 
 // --- 静态文件服务 (可选) ---

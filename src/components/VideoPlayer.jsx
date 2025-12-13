@@ -1,7 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import Hls from 'hls.js';
-import Plyr from 'plyr';
-import 'plyr/dist/plyr.css';
 import { ChevronLeft, AlertCircle, Loader2 } from 'lucide-react';
 import { hlsInstances, plyrInstances, stopAllPlayers } from '../utils/playerManager.js';
 import '../player.css';
@@ -15,6 +12,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
   const plyrRef = useRef(null);
   const isInitialized = useRef(false);
   const [retryKey, setRetryKey] = useState(0);
+  const playerId = useRef(Date.now() + Math.random().toString(36).substring(2, 10)); // 生成唯一ID
 
   // 初始化播放器
   useEffect(() => {
@@ -27,57 +25,73 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
 
     const initPlayer = async () => {
       try {
+        // 动态导入plyr及其样式
+        const PlyrModule = await import('plyr');
+        const Plyr = PlyrModule.default;
+        await import('plyr/dist/plyr.css');
+
         // HLS 处理
-        if (src.includes('.m3u8') && Hls.isSupported()) {
-          const hls = new Hls({
-            maxBufferLength: 30,
-            maxMaxBufferLength: 60,
-            startLevel: -1, // 自动选择最佳质量
-            enableWorker: true,
-            lowLatencyMode: false,
-            debug: false
-          });
+        if (src.includes('.m3u8')) {
+          // 动态导入hls.js
+          const HlsModule = await import('hls.js');
+          const Hls = HlsModule.default;
 
-          hlsRef.current = hls;
+          if (Hls.isSupported()) {
+            const hls = new Hls({
+              maxBufferLength: 30,
+              maxMaxBufferLength: 60,
+              startLevel: -1, // 自动选择最佳质量
+              enableWorker: true,
+              lowLatencyMode: false,
+              debug: false
+            });
 
-          hls.loadSource(src);
-          hls.attachMedia(video);
+            hlsRef.current = hls;
+            hlsInstances.set(playerId.current, hls);
 
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            // HLS加载完成后初始化Plyr
-            initPlyr();
-          });
+            hls.loadSource(src);
+            hls.attachMedia(video);
 
-          hls.on(Hls.Events.ERROR, (event, data) => {
-            if (data.fatal) {
-              switch (data.type) {
-                case Hls.ErrorTypes.NETWORK_ERROR:
-                  console.error('网络错误，尝试恢复...');
-                  hls.startLoad();
-                  break;
-                case Hls.ErrorTypes.MEDIA_ERROR:
-                  console.error('媒体错误，尝试恢复...');
-                  hls.recoverMediaError();
-                  break;
-                default:
-                  console.error('HLS播放错误:', data);
-                  setError('播放出错，请尝试切换源');
-                  setIsLoading(false);
-                  hls.destroy();
-                  break;
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+              // HLS加载完成后初始化Plyr
+              initPlyr(Plyr);
+            });
+
+            hls.on(Hls.Events.ERROR, (event, data) => {
+              if (data.fatal) {
+                switch (data.type) {
+                  case Hls.ErrorTypes.NETWORK_ERROR:
+                    console.error('网络错误，尝试恢复...');
+                    hls.startLoad();
+                    break;
+                  case Hls.ErrorTypes.MEDIA_ERROR:
+                    console.error('媒体错误，尝试恢复...');
+                    hls.recoverMediaError();
+                    break;
+                  default:
+                    console.error('HLS播放错误:', data);
+                    setError('播放出错，请尝试切换源');
+                    setIsLoading(false);
+                    hls.destroy();
+                    break;
+                }
               }
-            }
-          });
-
+            });
+          } else {
+            // HLS不支持，尝试原生播放
+            video.src = src;
+            video.addEventListener('loadedmetadata', () => initPlyr(Plyr));
+            video.addEventListener('error', handleVideoError);
+          }
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
           // 原生 HLS 支持 (iOS/Mac)
           video.src = src;
-          video.addEventListener('loadedmetadata', initPlyr);
+          video.addEventListener('loadedmetadata', () => initPlyr(Plyr));
           video.addEventListener('error', handleVideoError);
         } else {
           // 普通视频
           video.src = src;
-          video.addEventListener('loadedmetadata', initPlyr);
+          video.addEventListener('loadedmetadata', () => initPlyr(Plyr));
           video.addEventListener('error', handleVideoError);
         }
 
@@ -89,7 +103,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
     };
 
     // 初始化Plyr
-    const initPlyr = () => {
+    const initPlyr = (Plyr) => {
       if (plyrRef.current) return;
 
       const plyr = new Plyr(video, {
@@ -115,6 +129,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
       });
 
       plyrRef.current = plyr;
+      plyrInstances.set(playerId.current, plyr);
 
       // 监听Plyr事件
       plyr.on('ready', () => {
@@ -123,7 +138,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
         // 拦截全屏按钮点击事件，优先使用 iOS 原生全屏
         // 使用 capture 阶段捕获事件，并在检测到 iPad/iOS 时阻止 Plyr 的默认行为
         const fullscreenBtn = playerContainerRef.current?.querySelector('button[data-plyr="fullscreen"]');
-        
+
         if (fullscreenBtn) {
           fullscreenBtn.addEventListener('click', (e) => {
             // 检测 iPad (iPadOS 13+ 默认显示为 Macintosh) 或其他 iOS 设备
@@ -135,7 +150,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
               e.preventDefault();
               e.stopPropagation();
               e.stopImmediatePropagation();
-              
+
               // 调用原生全屏
               try {
                 video.webkitEnterFullscreen();
@@ -160,7 +175,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
               e.preventDefault();
               e.stopPropagation();
               e.stopImmediatePropagation();
-              
+
               // 调用原生全屏
               try {
                 video.webkitEnterFullscreen();
@@ -203,11 +218,13 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
       if (plyrRef.current) {
         plyrRef.current.destroy();
         plyrRef.current = null;
+        plyrInstances.delete(playerId.current);
       }
 
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
+        hlsInstances.delete(playerId.current);
       }
 
       if (video) {

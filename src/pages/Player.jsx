@@ -20,15 +20,23 @@ export default function Player() {
   }, []);
 
   useEffect(() => {
-    if (!currentVideo) {
-      // Fetch detail if not passed in state
+    // When URL params change, update video content
+    const newVideo = location.state?.video;
+
+    if (newVideo) {
+      // If video data is passed in state, use it directly
+      setCurrentVideo(newVideo);
+      // 使用过滤函数只获取m3u8格式的播放数据
+      setParsedEpisodes(parseAndFilterM3u8PlayUrl(newVideo));
+      // Reset to first episode when switching videos
+      setCurrentEpisodeIndex(0);
+    } else if (sourceKey && videoId) {
+      // Otherwise fetch from API
       fetchDetail();
-    } else {
-      // Parse episodes from existing video data
-      const eps = parsePlayUrl(currentVideo.vod_play_url);
-      setParsedEpisodes(eps);
+      // Reset to first episode when loading new video from API
+      setCurrentEpisodeIndex(0);
     }
-  }, [currentVideo, sourceKey, videoId]);
+  }, [sourceKey, videoId, location.state]);
 
   const fetchDetail = async () => {
     setLoading(true);
@@ -43,6 +51,8 @@ export default function Player() {
         // If needed, we could fetch source info too, but let's assume it's fine.
 
         setCurrentVideo(video);
+        // 使用过滤函数只获取m3u8格式的播放数据
+        setParsedEpisodes(parseAndFilterM3u8PlayUrl(video));
       } else {
         // Handle not found
         console.error("Video not found");
@@ -54,6 +64,31 @@ export default function Player() {
     }
   };
 
+  // 过滤并解析m3u8格式的播放数据
+  const parseAndFilterM3u8PlayUrl = (video) => {
+    if (!video || !video.vod_play_from || !video.vod_play_url) {
+      return [];
+    }
+
+    // 分割不同的播放源
+    const playFromList = video.vod_play_from.split('$$$');
+    const playUrlList = video.vod_play_url.split('$$$');
+
+    // 找到包含m3u8的播放源索引
+    const m3u8Index = playFromList.findIndex(source => source.toLowerCase().includes('m3u8'));
+
+    if (m3u8Index === -1 || !playUrlList[m3u8Index]) {
+      // 如果没有找到m3u8源，尝试从url中直接过滤
+      console.warn('未找到m3u8播放源，尝试直接从URL过滤');
+      return parsePlayUrl(video.vod_play_url || '')
+        .filter(item => item.url.includes('.m3u8'));
+    }
+
+    // 只解析m3u8源的播放URL
+    return parsePlayUrl(playUrlList[m3u8Index]);
+  };
+
+  // 基础解析播放URL函数
   const parsePlayUrl = (urlStr) => {
     if (!urlStr) return [];
     return urlStr.split('#')
@@ -72,6 +107,23 @@ export default function Player() {
   if (loading) return <div className="text-center py-10 text-slate-400">正在加载视频信息...</div>;
   if (!currentVideo) return <div className="text-center py-10 text-slate-400">未找到视频</div>;
 
+  const handleBack = () => {
+    // 检查是否是从搜索页过来的
+    if (location.state?.searchResults && location.state?.searchKeyword) {
+      // 如果是从搜索页过来的，返回搜索页并携带搜索结果和fromPlayer标记
+      navigate(`/search/${location.state.searchKeyword}`, {
+        state: {
+          fromPlayer: true,
+          searchResults: location.state.searchResults,
+          searchKeyword: location.state.searchKeyword
+        }
+      });
+    } else {
+      // 否则使用默认的返回方式
+      navigate(-1);
+    }
+  };
+
   return (
     <VideoDetail
       currentVideo={currentVideo}
@@ -81,7 +133,7 @@ export default function Player() {
       stopAllPlayers={stopAllPlayers}
       recommendVideos={recommendVideos}
       onVideoClick={handleVideoClick}
-      onBack={() => navigate(-1)}
+      onBack={handleBack}
     />
   );
 }

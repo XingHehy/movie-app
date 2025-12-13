@@ -17,6 +17,9 @@ export default function App() {
   const [sources, setSources] = useState([]);
   const [currentSource, setCurrentSource] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedSearchSources, setSelectedSearchSources] = useState([]);
+  const [searchSourceMode, setSearchSourceMode] = useState('all'); // 'all' or 'selected'
+  const [searchTrigger, setSearchTrigger] = useState(0);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -82,6 +85,19 @@ export default function App() {
     }
   }, [location.pathname, isSearching]);
 
+  // 当访问搜索页面时，将URL中的关键词同步到搜索框
+  useEffect(() => {
+    if (isSearching) {
+      // Decode URL encoded keyword
+      const keyword = decodeURIComponent(location.pathname.split('/').pop() || '');
+      // 更新搜索框的内容
+      setSearchQuery(keyword);
+    } else if (!isSearching && location.pathname === '/') {
+      // 在首页时清空搜索框
+      setSearchQuery('');
+    }
+  }, [location.pathname, isSearching]);
+
   const handleLogin = () => setIsAuthenticated(true);
 
   const handleLogout = async () => {
@@ -94,6 +110,8 @@ export default function App() {
     e.preventDefault();
     const query = searchQuery.trim();
     if (!query) return;
+    // 增加搜索触发次数，确保即使关键词不变也会触发新搜索
+    setSearchTrigger(prev => prev + 1);
     navigate(`/search/${encodeURIComponent(query)}`);
   };
 
@@ -114,7 +132,11 @@ export default function App() {
     setIsSearching: () => { }, // Handled by route
     currentSource,
     setCurrentSource,
-    sources
+    sources,
+    selectedSearchSources,
+    setSelectedSearchSources,
+    searchSourceMode,
+    setSearchSourceMode
   };
 
   if (!isAuthenticated) {
@@ -128,7 +150,12 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-4 py-6">
         <Routes>
           <Route path="/" element={<Home currentSource={currentSource} />} />
-          <Route path="/search/:keyword" element={<Search sources={sources} />} />
+          <Route path="/search/:keyword" element={<Search
+            sources={sources}
+            selectedSearchSources={selectedSearchSources}
+            searchSourceMode={searchSourceMode}
+            searchTrigger={searchTrigger}
+          />} />
           <Route path="/play/:sourceKey/:videoId" element={<Player />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
