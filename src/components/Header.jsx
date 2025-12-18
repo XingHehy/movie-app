@@ -17,7 +17,11 @@ const Header = ({
     selectedSearchSources,
     setSelectedSearchSources,
     searchSourceMode,
-    setSearchSourceMode
+    setSearchSourceMode,
+    userRole,
+    handleLogout,
+    showAdminDialog,
+    setShowAdminDialog
 }) => {
     const [hoveredSource, setHoveredSource] = useState(null);
     const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
@@ -82,6 +86,19 @@ const Header = ({
                             <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 leading-none">极影</span>
                             <span className="text-[10px] text-slate-500 font-medium tracking-wider transform scale-90 origin-center">全网聚合搜索</span>
                         </div>
+                    </div>
+
+                    {/* 管理员设置按钮（移动端，跟在 Logo 后） */}
+                    <div className="flex items-center gap-2 md:hidden">
+                        {userRole === 'admin' && (
+                            <button
+                                onClick={() => setShowAdminDialog(true)}
+                                className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
+                                title="管理员设置"
+                            >
+                                <Settings size={18} />
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -230,7 +247,7 @@ const Header = ({
 
                                 {/* 数据源列表 */}
                                 <div className="space-y-1 max-h-60 overflow-y-auto mb-3">
-                                    {sources.map((source) => (
+                                    {sources.filter(s => s.enabled === true).map((source) => (
                                         <div
                                             key={source.key}
                                             className="flex flex-col px-2 py-1.5 rounded-md hover:bg-slate-700/50 transition-colors"
@@ -274,7 +291,11 @@ const Header = ({
                                         type="button"
                                         className="flex-1 px-3 py-1.5 text-xs text-slate-300 bg-slate-700 hover:bg-slate-600 rounded-md transition-colors"
                                         onClick={() => {
-                                            setSelectedSearchSources(sources.map((s) => s.key));
+                                            setSelectedSearchSources(
+                                                sources
+                                                    .filter((s) => s.enabled === true)
+                                                    .map((s) => s.key)
+                                            );
                                         }}
                                     >
                                         全选
@@ -303,6 +324,19 @@ const Header = ({
                         )}
                     </div>
                 </form>
+
+                {/* 管理员设置按钮（桌面端，右上角） */}
+                {userRole === 'admin' && (
+                    <div className="hidden md:flex items-center ml-auto">
+                        <button
+                            onClick={() => setShowAdminDialog(true)}
+                            className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
+                            title="管理员设置"
+                        >
+                            <Settings size={18} />
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* 资源源选择器 (仅在列表页显示) */}
@@ -310,7 +344,7 @@ const Header = ({
                 <div className="border-t border-white/5 bg-black/20 relative">
                     <div className="max-w-7xl mx-auto px-4 py-2 overflow-x-auto thin-scrollbar flex items-center gap-2">
                         <span className="text-xs text-slate-500 whitespace-nowrap mr-2">数据源:</span>
-                        {sources.map(s => (
+                        {sources.filter(s => s.enabled === true).map(s => (
                             <div key={s.key} className="relative flex-shrink-0">
                                 <button
                                     onMouseEnter={(e) => {

@@ -110,10 +110,11 @@ export default function Search({ sources, selectedSearchSources, searchSourceMod
       sourceMode: searchSourceMode
     });
 
-    // 根据搜索源模式过滤需要搜索的源
+    // 根据搜索源模式过滤需要搜索的源（只搜索显式启用的源）
+    const enabledSources = sources.filter(source => source.enabled === true);
     const sourcesToSearch = searchSourceMode === 'selected' && selectedSearchSources.length > 0
-      ? sources.filter(source => selectedSearchSources.includes(source.key))
-      : sources;
+      ? enabledSources.filter(source => selectedSearchSources.includes(source.key))
+      : enabledSources;
 
 
     // 初始化已完成搜索的源计数

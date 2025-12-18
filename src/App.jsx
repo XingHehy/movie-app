@@ -5,6 +5,7 @@ import { stopAllPlayers } from './utils/playerManager.js';
 import LoginScreen from './components/LoginScreen.jsx';
 import Header from './components/Header.jsx';
 import Toast from './components/Toast.jsx';
+import AdminSettings from './components/AdminSettings.jsx';
 import Home from './pages/Home.jsx';
 import Search from './pages/Search.jsx';
 import Player from './pages/Player.jsx';
@@ -13,6 +14,7 @@ import './player.css';
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userRole, setUserRole] = useState(null);
   const [toastMessage, setToastMessage] = useState("");
   const [sources, setSources] = useState([]);
   const [currentSource, setCurrentSource] = useState(null);
@@ -20,6 +22,7 @@ export default function App() {
   const [selectedSearchSources, setSelectedSearchSources] = useState([]);
   const [searchSourceMode, setSearchSourceMode] = useState('all'); // 'all' or 'selected'
   const [searchTrigger, setSearchTrigger] = useState(0);
+  const [showAdminDialog, setShowAdminDialog] = useState(false);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -56,6 +59,14 @@ export default function App() {
     const token = sessionStorage.getItem('auth_token');
     if (token) {
       setIsAuthenticated(true);
+      // Get user role from token
+      const payload = token.split('.')[1];
+      try {
+        const userData = JSON.parse(atob(payload));
+        setUserRole(userData.role);
+      } catch (error) {
+        console.error('Failed to parse token:', error);
+      }
     }
   }, []);
 
@@ -98,11 +109,15 @@ export default function App() {
     }
   }, [location.pathname, isSearching]);
 
-  const handleLogin = () => setIsAuthenticated(true);
+  const handleLogin = (role) => {
+    setIsAuthenticated(true);
+    setUserRole(role);
+  };
 
   const handleLogout = async () => {
     try { await api.logout(); } catch (err) { }
     setIsAuthenticated(false);
+    setUserRole(null);
     stopAllPlayers();
   };
 
@@ -136,7 +151,11 @@ export default function App() {
     selectedSearchSources,
     setSelectedSearchSources,
     searchSourceMode,
-    setSearchSourceMode
+    setSearchSourceMode,
+    userRole, // Add userRole to header props
+    handleLogout, // Add handleLogout to header props
+    showAdminDialog,
+    setShowAdminDialog
   };
 
   if (!isAuthenticated) {
@@ -172,6 +191,7 @@ export default function App() {
         message={toastMessage}
         onClose={() => setToastMessage("")}
       />
+      <AdminSettings isOpen={showAdminDialog} onClose={() => setShowAdminDialog(false)} />
     </div>
   );
 }

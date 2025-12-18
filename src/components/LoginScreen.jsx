@@ -40,7 +40,7 @@ const LoginScreen = ({ onLogin }) => {
       const data = await api.login(password);
 
       if (data?.success) {
-        onLogin(); // 不再传递密码
+        onLogin(data.role); // 传递用户角色
       } else {
         setError("密码错误，请重试");
         setToastMessage("密码错误，请重试");

@@ -13,9 +13,14 @@ docker build -t movie-app .
 ```bash
 docker-compose up -d
 ```
-使用命令：
+使用命令（可选配置 Redis）：
 ```bash
-docker run -d   -p 8686:3000   --name movie-app   -e JWT_SECRET='video!@#$%'   -e SITE_PASSWORD='666888'   -e REDIS_URL='redis://admin:123456@127.0.0.7:6379/6'   movie-app:latest
+docker run -d \
+  -p 8686:3000 \
+  --name movie-app \
+  -e JWT_SECRET='video!@#$%' \
+  -e REDIS_URL='redis://admin:123456@127.0.0.7:6379/6' \
+  movie-app:latest
 ```
 
 ---
@@ -53,6 +58,10 @@ docker run -d   -p 8686:3000   --name movie-app   -e JWT_SECRET='video!@#$%'   -
 ---
 
 # 更新日志
+
+- **v1.5**
+  - 优化重构整体逻辑
+  - 不再强依赖 Redis，支持无 Redis 环境下正常运行（仅在提供 `REDIS_URL` 时启用 Redis 功能）
 
 - **v1.43**
   - 优化交互体验

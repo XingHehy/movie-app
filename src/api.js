@@ -22,11 +22,29 @@ const tokenManager = {
         const expiry = sessionStorage.getItem(TOKEN_EXPIRY_KEY);
         if (!expiry) return false;
         return Date.now() >= parseInt(expiry);
+    },
+    getPayload: () => {
+        const token = sessionStorage.getItem(TOKEN_KEY);
+        if (!token) return null;
+
+        try {
+            const payload = token.split('.')[1];
+            return JSON.parse(atob(payload));
+        } catch {
+            return null;
+        }
+    },
+    getRole: () => {
+        const payload = tokenManager.getPayload();
+        return payload?.role || null;
     }
 };
 
 // 解析过期时间字符串（如 "2h", "30m"）
 const parseExpiresIn = (expiresIn) => {
+    if (!expiresIn || typeof expiresIn !== 'string') {
+        return 2 * 60 * 60 * 1000; // 默认2小时
+    }
     const match = expiresIn.match(/^(\d+)([smhd])$/);
     if (!match) return 2 * 60 * 60 * 1000; // 默认2小时
 
@@ -186,6 +204,63 @@ export const api = {
             headers: getAuthHeaders(),
             credentials: 'omit',
             signal
+        });
+        return handleResponse(res);
+    },
+
+    // 获取Redis中的源站配置（管理员专用）
+    getSourcesFromRedis: async () => {
+        const res = await fetch(`${API_BASE_URL}/admin/sources/redis`, {
+            headers: {
+                ...getAuthHeaders(),
+                "Content-Type": "application/json"
+            },
+            credentials: 'omit'
+        });
+        return handleResponse(res);
+    },
+
+    // 保存源站配置（管理员专用）
+    saveSources: async (sources, syncToRedis) => {
+        const res = await fetch(`${API_BASE_URL}/admin/sources`, {
+            method: "POST",
+            headers: {
+                ...getAuthHeaders(),
+                "Content-Type": "application/json"
+            },
+            credentials: 'omit',
+            body: JSON.stringify({
+                sources,
+                syncToRedis
+            })
+        });
+        return handleResponse(res);
+    },
+
+    // 更新管理员密码（管理员专用）
+    updateAdminPassword: async (newPassword) => {
+        const res = await fetch(`${API_BASE_URL}/admin/password`, {
+            method: "POST",
+            headers: {
+                ...getAuthHeaders(),
+                "Content-Type": "application/json"
+            },
+            credentials: 'omit',
+            body: JSON.stringify({ password: newPassword })
+        });
+        return handleResponse(res);
+    },
+
+    // 更新用户密码（管理员专用）
+    updateUserPassword: async (newPassword) => {
+        const res = await fetch(`${API_BASE_URL}/user/password`, {
+            method: "POST",
+            headers: {
+                ...getAuthHeaders(),
+                "Content-Type": "application/json"
+            },
+            credentials: 'omit',
+            body: JSON.stringify({ password: newPassword })
         });
         return handleResponse(res);
     }
