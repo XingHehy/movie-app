@@ -5,7 +5,7 @@ import VideoList from '../components/VideoList';
 import { api } from '../api';
 import { stopAllPlayers } from '../utils/playerManager';
 
-export default function Search({ sources, selectedSearchSources, searchSourceMode, searchTrigger }) {
+export default function Search({ sources, selectedSearchSources, searchSourceMode, searchTrigger, setToastMessage }) {
   const { keyword } = useParams();
   const location = useLocation();
   const [videos, setVideos] = useState([]);
@@ -187,6 +187,12 @@ export default function Search({ sources, selectedSearchSources, searchSourceMod
   };
 
   const handleVideoClick = (v) => {
+    // 如果没有播放地址，则提示无法播放
+    if (!v.vod_play_url || !String(v.vod_play_url).trim()) {
+      setToastMessage && setToastMessage("此视频暂无法播放");
+      return;
+    }
+
     stopAllPlayers();
     // Prepare recommendation list from search results (filtering out clicked video)
     let recommendations = [];

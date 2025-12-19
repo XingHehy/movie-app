@@ -168,13 +168,27 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto px-4 py-6">
         <Routes>
-          <Route path="/" element={<Home currentSource={currentSource} />} />
-          <Route path="/search/:keyword" element={<Search
-            sources={sources}
-            selectedSearchSources={selectedSearchSources}
-            searchSourceMode={searchSourceMode}
-            searchTrigger={searchTrigger}
-          />} />
+          <Route
+            path="/"
+            element={
+              <Home
+                currentSource={currentSource}
+                setToastMessage={setToastMessage}
+              />
+            }
+          />
+          <Route
+            path="/search/:keyword"
+            element={
+              <Search
+                sources={sources}
+                selectedSearchSources={selectedSearchSources}
+                searchSourceMode={searchSourceMode}
+                searchTrigger={searchTrigger}
+                setToastMessage={setToastMessage}
+              />
+            }
+          />
           <Route path="/play/:sourceKey/:videoId" element={<Player />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

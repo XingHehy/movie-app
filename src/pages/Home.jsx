@@ -5,7 +5,7 @@ import Pagination from '../components/Pagination';
 import { api } from '../api';
 import { stopAllPlayers } from '../utils/playerManager';
 
-export default function Home({ currentSource }) {
+export default function Home({ currentSource, setToastMessage }) {
   const [page, setPage] = useState(1);
 
   const [videos, setVideos] = useState([]);
@@ -49,6 +49,12 @@ export default function Home({ currentSource }) {
   };
 
   const handleVideoClick = (v) => {
+    // 如果没有播放地址，则提示无法播放
+    if (!v.vod_play_url || !String(v.vod_play_url).trim()) {
+      setToastMessage && setToastMessage("此视频暂无法播放");
+      return;
+    }
+
     stopAllPlayers();
     navigate(`/play/${v.sourceKey}/${v.vod_id}`, { state: { video: v } });
   };
