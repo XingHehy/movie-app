@@ -1,37 +1,85 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import VideoList from '../components/VideoList';
 import Pagination from '../components/Pagination';
 import { api } from '../api';
 import { stopAllPlayers } from '../utils/playerManager';
 
-export default function Home({ currentSource, setToastMessage }) {
-  const [page, setPage] = useState(1);
-
-  const [videos, setVideos] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [totalPages, setTotalPages] = useState(1);
+export default function Home({ currentSource, setToastMessage, homeCache, setHomeCache }) {
   const navigate = useNavigate();
+  const [page, setPage] = useState(homeCache.page || 1);
+  const [videos, setVideos] = useState(homeCache.videos || []);
+  const [loading, setLoading] = useState(false);
+  const [totalPages, setTotalPages] = useState(homeCache.totalPages || 1);
 
+  // 当数据源变化时
   useEffect(() => {
-    if (currentSource?.key) {
+    if (!currentSource?.key) return;
+
+    // 检查缓存是否有效（同一数据源，5分钟内，有数据）
+    const cacheAge = Date.now() - (homeCache.timestamp || 0);
+    const isCacheValid = homeCache.sourceKey === currentSource.key && 
+                        cacheAge < 5 * 60 * 1000 && 
+                        homeCache.videos.length > 0;
+
+    // 如果缓存有效且页码匹配，使用缓存
+    if (isCacheValid && page === homeCache.page) {
+      setVideos(homeCache.videos);
+      setTotalPages(homeCache.totalPages);
+      return;
+    }
+
+    // 如果数据源变化或缓存无效，重新加载
+    if (homeCache.sourceKey !== currentSource.key || !isCacheValid) {
       fetchSingleSource(currentSource, page);
     }
-  }, [currentSource, page]);
+  }, [currentSource?.key]);
+
+  // 当页码变化时
+  useEffect(() => {
+    if (!currentSource?.key) return;
+    
+    // 如果缓存的是当前页且有效，使用缓存
+    const cacheAge = Date.now() - (homeCache.timestamp || 0);
+    if (page === homeCache.page && 
+        homeCache.sourceKey === currentSource.key && 
+        homeCache.videos.length > 0 &&
+        cacheAge < 5 * 60 * 1000) {
+      setVideos(homeCache.videos);
+      setTotalPages(homeCache.totalPages);
+      return;
+    }
+    
+    // 否则重新加载
+    fetchSingleSource(currentSource, page);
+  }, [page]);
 
   const fetchSingleSource = async (source, pageNum) => {
     setLoading(true);
     try {
       const data = await api.getVideoList(source.key, pageNum);
       if (data?.list) {
-        setVideos(data.list.map(v => ({
+        const videoList = data.list.map(v => ({
           ...v,
           sourceName: source.name,
           sourceDesc: source.desc,
           sourceKey: source.key,
           uniqueId: `${source.key}_${v.vod_id}`
-        })));
-        setTotalPages(Number(data.pagecount) || 1);
+        }));
+        setVideos(videoList);
+        const total = Number(data.pagecount) || 1;
+        setTotalPages(total);
+        
+        // 更新缓存（只缓存第一页）
+        if (pageNum === 1) {
+          setHomeCache({
+            videos: videoList,
+            page: pageNum,
+            totalPages: total,
+            sourceKey: source.key,
+            timestamp: Date.now()
+          });
+        }
       } else {
         setVideos([]);
       }

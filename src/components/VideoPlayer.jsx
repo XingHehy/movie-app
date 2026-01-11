@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, AlertCircle, Loader2 } from 'lucide-react';
 import { hlsInstances, plyrInstances, stopAllPlayers } from '../utils/playerManager.js';
+import { updateWatchHistory } from '../utils/historyManager.js';
 import '../player.css';
 
-const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => {
+const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, currentVideo, currentEpisodeIndex, parsedEpisodes, resumeTime }) => {
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const videoRef = useRef(null);
@@ -13,6 +14,8 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
   const isInitialized = useRef(false);
   const [retryKey, setRetryKey] = useState(0);
   const playerId = useRef(Date.now() + Math.random().toString(36).substring(2, 10)); // 生成唯一ID
+  const saveProgressIntervalRef = useRef(null);
+  const hasRestoredTimeRef = useRef(false);
 
   // 初始化播放器
   useEffect(() => {
@@ -55,6 +58,26 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
               // HLS加载完成后初始化Plyr
               initPlyr(Plyr);
+            });
+
+            // HLS 加载完成后，也尝试恢复播放进度
+            hls.on(Hls.Events.LEVEL_LOADED, () => {
+              // 延迟一点时间，确保视频元数据已加载
+              setTimeout(() => {
+                if (video.duration > 0 && resumeTime > 0 && !hasRestoredTimeRef.current) {
+                  // 恢复时间减去5秒，让用户有一些上下文
+                  const adjustedResumeTime = Math.max(0, resumeTime - 5);
+                  const safeResumeTime = Math.min(adjustedResumeTime, video.duration - 1);
+                  if (safeResumeTime > 0) {
+                    hasRestoredTimeRef.current = true;
+                    video.currentTime = safeResumeTime;
+                    if (plyrRef.current) {
+                      plyrRef.current.currentTime = safeResumeTime;
+                    }
+                    console.log('✅ HLS 恢复播放进度:', safeResumeTime, '/', video.duration, '(原始时间:', resumeTime, ')');
+                  }
+                }
+              }, 300);
             });
 
             hls.on(Hls.Events.ERROR, (event, data) => {
@@ -131,9 +154,27 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
       plyrRef.current = plyr;
       plyrInstances.set(playerId.current, plyr);
 
+      // 恢复播放进度的函数
+      const restorePlaybackTime = () => {
+        if (resumeTime && resumeTime > 0 && !hasRestoredTimeRef.current && video.duration > 0) {
+          // 恢复时间减去5秒，让用户有一些上下文
+          const adjustedResumeTime = Math.max(0, resumeTime - 5);
+          // 确保恢复时间不超过视频总时长
+          const safeResumeTime = Math.min(adjustedResumeTime, video.duration - 1);
+          if (safeResumeTime > 0) {
+            hasRestoredTimeRef.current = true;
+            video.currentTime = safeResumeTime;
+            plyr.currentTime = safeResumeTime;
+            console.log('✅ 恢复播放进度:', safeResumeTime, '/', video.duration, '(原始时间:', resumeTime, ')');
+          }
+        }
+      };
+
       // 监听Plyr事件
       plyr.on('ready', () => {
         setIsLoading(false);
+        // 尝试恢复播放进度
+        restorePlaybackTime();
 
         // 拦截全屏按钮点击事件，优先使用 iOS 原生全屏
         // 使用 capture 阶段捕获事件，并在检测到 iPad/iOS 时阻止 Plyr 的默认行为
@@ -189,6 +230,78 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
 
       plyr.on('canplay', () => {
         setIsLoading(false);
+        // 如果 ready 事件时还没有 duration，在这里尝试恢复
+        restorePlaybackTime();
+      });
+
+      // 监听 loadedmetadata 事件，确保视频元数据已加载
+      video.addEventListener('loadedmetadata', () => {
+        restorePlaybackTime();
+      });
+
+      // 监听 loadeddata 事件，作为另一个恢复时机
+      video.addEventListener('loadeddata', () => {
+        restorePlaybackTime();
+      });
+
+      // 监听 timeupdate 事件，如果还没有恢复且视频已经开始播放，尝试恢复
+      const checkResumeOnTimeUpdate = () => {
+        if (resumeTime && resumeTime > 0 && !hasRestoredTimeRef.current && video.duration > 0) {
+          restorePlaybackTime();
+        }
+      };
+      
+      // 延迟检查，给视频一些时间加载
+      setTimeout(() => {
+        if (video.readyState >= 2) { // HAVE_CURRENT_DATA
+          checkResumeOnTimeUpdate();
+        }
+      }, 500);
+
+      // 监听播放进度变化，用于立即保存（当用户滑动进度条时）
+      let lastSaveTime = 0;
+      const handleTimeUpdate = () => {
+        // 使用最新的 ref 值，避免闭包问题
+        const video = videoRef.current;
+        const currentVideoData = currentVideo;
+        const currentIndex = currentEpisodeIndex;
+        const episodes = parsedEpisodes;
+        
+        if (!currentVideoData || !video) return;
+        const currentTime = video.currentTime || 0;
+        const duration = video.duration || 0;
+        
+        // 只要有播放时间就保存（移除5秒限制，让用户滑动进度条也能立即保存）
+        if (currentTime > 0 && duration > 0) {
+          updateWatchHistory({
+            vod_id: currentVideoData.vod_id,
+            sourceKey: currentVideoData.sourceKey || '',
+            vod_name: currentVideoData.vod_name,
+            vod_pic: currentVideoData.vod_pic || '',
+            episodeIndex: currentIndex || 0,
+            episodeName: episodes?.[currentIndex]?.name || '',
+            currentTime: currentTime,
+            duration: duration
+          });
+        }
+      };
+
+      // 节流函数，避免频繁保存
+      const throttledTimeUpdate = () => {
+        const now = Date.now();
+        // 每2秒最多保存一次
+        if (now - lastSaveTime >= 2000) {
+          lastSaveTime = now;
+          handleTimeUpdate();
+        }
+      };
+
+      plyr.on('timeupdate', throttledTimeUpdate);
+      
+      // 监听用户拖动进度条（seeked 事件）
+      plyr.on('seeked', () => {
+        // 用户拖动进度条后立即保存
+        handleTimeUpdate();
       });
 
       plyr.on('error', (event) => {
@@ -234,8 +347,83 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack }) => 
       }
 
       isInitialized.current = false;
+      hasRestoredTimeRef.current = false;
+      
+      // 清理保存进度的定时器
+      if (saveProgressIntervalRef.current) {
+        clearInterval(saveProgressIntervalRef.current);
+        saveProgressIntervalRef.current = null;
+      }
     };
-  }, [src, poster, retryKey]);
+  }, [src, poster, retryKey, resumeTime, currentVideo, currentEpisodeIndex, parsedEpisodes]);
+
+  // 当 resumeTime 变化时，重置恢复标志，以便新的 resumeTime 能够生效
+  useEffect(() => {
+    if (resumeTime > 0) {
+      hasRestoredTimeRef.current = false;
+      console.log('🔄 resumeTime 已更新，准备恢复播放:', resumeTime);
+    }
+  }, [resumeTime]);
+
+  // 定期保存播放进度（作为备份机制，即使事件监听失效也能保存）
+  useEffect(() => {
+    if (!currentVideo || !plyrRef.current || !videoRef.current) return;
+
+    // 每10秒保存一次播放进度（作为备份）
+    saveProgressIntervalRef.current = setInterval(() => {
+      const video = videoRef.current;
+      if (!video) return;
+
+      const currentTime = video.currentTime || 0;
+      const duration = video.duration || 0;
+      
+      // 只要有播放时间和总时长就保存（移除5秒限制）
+      if (currentTime > 0 && duration > 0) {
+        updateWatchHistory({
+          vod_id: currentVideo.vod_id,
+          sourceKey: currentVideo.sourceKey || '',
+          vod_name: currentVideo.vod_name,
+          vod_pic: currentVideo.vod_pic || '',
+          episodeIndex: currentEpisodeIndex || 0,
+          episodeName: parsedEpisodes?.[currentEpisodeIndex]?.name || '',
+          currentTime: currentTime,
+          duration: duration
+        });
+      }
+    }, 10000); // 每10秒保存一次作为备份
+
+    return () => {
+      if (saveProgressIntervalRef.current) {
+        clearInterval(saveProgressIntervalRef.current);
+        saveProgressIntervalRef.current = null;
+      }
+    };
+  }, [currentVideo, currentEpisodeIndex, parsedEpisodes]);
+
+  // 在组件卸载或视频切换时保存最终进度
+  useEffect(() => {
+    return () => {
+      if (currentVideo && videoRef.current) {
+        const video = videoRef.current;
+        const currentTime = video.currentTime || 0;
+        const duration = video.duration || 0;
+        
+        // 只要有播放时间和总时长就保存
+        if (currentTime >= 0 && duration > 0) {
+          updateWatchHistory({
+            vod_id: currentVideo.vod_id,
+            sourceKey: currentVideo.sourceKey || '',
+            vod_name: currentVideo.vod_name,
+            vod_pic: currentVideo.vod_pic || '',
+            episodeIndex: currentEpisodeIndex || 0,
+            episodeName: parsedEpisodes?.[currentEpisodeIndex]?.name || '',
+            currentTime: currentTime,
+            duration: duration
+          });
+        }
+      }
+    };
+  }, [currentVideo, currentEpisodeIndex, parsedEpisodes]);
 
   return (
     <div className="animate-fade-in w-full">

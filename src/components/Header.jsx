@@ -1,6 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Play, Settings, X } from 'lucide-react';
+import { Search, Play, Settings, X, History, Clock } from 'lucide-react';
 import { stopAllPlayers } from '../utils/playerManager.js';
+import { 
+    getSearchHistory, 
+    addSearchHistory, 
+    removeSearchHistory, 
+    clearSearchHistory,
+    getWatchHistory,
+    removeWatchHistory,
+    clearWatchHistory
+} from '../utils/historyManager.js';
+import { useNavigate } from 'react-router-dom';
+import { api } from '../api.js';
 
 const Header = ({
     searchQuery,
@@ -23,15 +34,48 @@ const Header = ({
     showAdminDialog,
     setShowAdminDialog
 }) => {
+    const navigate = useNavigate();
     const [hoveredSource, setHoveredSource] = useState(null);
     const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
     const [showSearchDropdown, setShowSearchDropdown] = useState(false);
     const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+    const [showSearchHistory, setShowSearchHistory] = useState(false);
+    const [showWatchHistory, setShowWatchHistory] = useState(false);
+    const [searchHistory, setSearchHistory] = useState([]);
+    const [watchHistory, setWatchHistory] = useState([]);
 
     // 添加refs用于跟踪下拉菜单和设置面板
     const searchDropdownRef = useRef(null);
     const settingsPanelRef = useRef(null);
     const searchButtonRef = useRef(null);
+    const searchInputRef = useRef(null);
+    const searchHistoryRef = useRef(null);
+    const watchHistoryRef = useRef(null);
+    const watchHistoryPanelRef = useRef(null);
+    const watchHistoryMobileRef = useRef(null);
+    const watchHistoryMobilePanelRef = useRef(null);
+
+    // 加载搜索历史和观看历史
+    useEffect(() => {
+        setSearchHistory(getSearchHistory());
+        setWatchHistory(getWatchHistory());
+    }, []);
+
+    // 监听搜索历史变化（从其他地方添加）
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setSearchHistory(getSearchHistory());
+        }, 1000);
+        return () => clearInterval(interval);
+    }, []);
+
+    // 监听观看历史变化
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setWatchHistory(getWatchHistory());
+        }, 2000);
+        return () => clearInterval(interval);
+    }, []);
 
     // 点击外部区域关闭下拉菜单和设置面板
     useEffect(() => {
@@ -45,6 +89,17 @@ const Header = ({
             // 检查是否点击了设置面板内部
             const isClickInsideSettings = settingsPanelRef.current && settingsPanelRef.current.contains(event.target);
 
+            // 检查是否点击了搜索输入框或搜索历史面板
+            const isClickInsideSearchInput = searchInputRef.current && searchInputRef.current.contains(event.target);
+            const isClickInsideSearchHistory = searchHistoryRef.current && searchHistoryRef.current.contains(event.target);
+
+            // 检查是否点击了观看历史按钮或面板（桌面端和移动端）
+            const isClickInsideWatchHistoryButton = watchHistoryRef.current && watchHistoryRef.current.contains(event.target);
+            const isClickInsideWatchHistoryPanel = watchHistoryPanelRef.current && watchHistoryPanelRef.current.contains(event.target);
+            const isClickInsideWatchHistoryMobileButton = watchHistoryMobileRef.current && watchHistoryMobileRef.current.contains(event.target);
+            const isClickInsideWatchHistoryMobilePanel = watchHistoryMobilePanelRef.current && watchHistoryMobilePanelRef.current.contains(event.target);
+            const isClickInsideWatchHistory = isClickInsideWatchHistoryButton || isClickInsideWatchHistoryPanel || isClickInsideWatchHistoryMobileButton || isClickInsideWatchHistoryMobilePanel;
+
             // 如果点击了外部且下拉菜单或设置面板是打开的，则关闭它们
             if (!isClickInsideSearchButton && !isClickInsideDropdown && showSearchDropdown) {
                 setShowSearchDropdown(false);
@@ -52,6 +107,14 @@ const Header = ({
 
             if (!isClickInsideSettings && showSettingsPanel) {
                 setShowSettingsPanel(false);
+            }
+
+            if (!isClickInsideSearchInput && !isClickInsideSearchHistory && showSearchHistory) {
+                setShowSearchHistory(false);
+            }
+
+            if (!isClickInsideWatchHistory && showWatchHistory) {
+                setShowWatchHistory(false);
             }
         };
 
@@ -64,7 +127,102 @@ const Header = ({
             document.removeEventListener('mousedown', handleClickOutside);
             document.removeEventListener('touchstart', handleClickOutside);
         };
-    }, [showSearchDropdown, showSettingsPanel]);
+    }, [showSearchDropdown, showSettingsPanel, showSearchHistory, showWatchHistory]);
+
+    // 处理搜索历史点击
+    const handleSearchHistoryClick = (query) => {
+        setSearchQuery(query);
+        setShowSearchHistory(false);
+        // 导航到搜索页面
+        navigate(`/search/${encodeURIComponent(query)}`);
+    };
+
+    // 格式化观看历史时间
+    const formatTime = (seconds) => {
+        if (!seconds || seconds < 0) return '00:00';
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const secs = Math.floor(seconds % 60);
+        if (hours > 0) {
+            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+        return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    // 格式化观看时间（友好的时间显示）
+    const formatWatchTime = (timestamp) => {
+        if (!timestamp) return '';
+        
+        const now = new Date();
+        const watchDate = new Date(timestamp);
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const watchDay = new Date(watchDate.getFullYear(), watchDate.getMonth(), watchDate.getDate());
+        
+        if (watchDay.getTime() === today.getTime()) {
+            // 今天
+            const hours = watchDate.getHours().toString().padStart(2, '0');
+            const minutes = watchDate.getMinutes().toString().padStart(2, '0');
+            return `今天 ${hours}:${minutes}`;
+        } else if (watchDay.getTime() === yesterday.getTime()) {
+            // 昨天
+            const hours = watchDate.getHours().toString().padStart(2, '0');
+            const minutes = watchDate.getMinutes().toString().padStart(2, '0');
+            return `昨天 ${hours}:${minutes}`;
+        } else {
+            // 更早的日期
+            const year = watchDate.getFullYear();
+            const month = (watchDate.getMonth() + 1).toString().padStart(2, '0');
+            const day = watchDate.getDate().toString().padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+    };
+
+    // 处理观看历史点击
+    const handleWatchHistoryClick = (historyItem) => {
+        console.log('=== 点击观看历史 ===');
+        console.log('历史项数据:', historyItem);
+        
+        if (!historyItem || !historyItem.sourceKey || !historyItem.vod_id) {
+            console.error('观看历史项缺少必要信息:', historyItem);
+            alert('观看历史项数据不完整');
+            return;
+        }
+
+        const resumeEpisode = historyItem.episodeIndex !== undefined && historyItem.episodeIndex !== null ? historyItem.episodeIndex : 0;
+        const resumeTime = historyItem.currentTime || 0;
+        
+        console.log('准备导航:', {
+            sourceKey: historyItem.sourceKey,
+            vod_id: historyItem.vod_id,
+            resumeEpisode,
+            resumeTime
+        });
+
+        stopAllPlayers();
+        setShowWatchHistory(false);
+        
+        const targetPath = `/play/${historyItem.sourceKey}/${historyItem.vod_id}`;
+        console.log('导航路径:', targetPath);
+        
+        // 直接导航，不等待 API 调用
+        navigate(targetPath, {
+            state: {
+                resumeEpisode: resumeEpisode,
+                resumeTime: resumeTime
+            }
+        });
+        
+        console.log('导航命令已执行');
+    };
+
+    // 截断文本
+    const truncateText = (text, maxLength) => {
+        if (!text) return '';
+        if (text.length <= maxLength) return text;
+        return text.substring(0, maxLength) + '...';
+    };
     return (
         <header className="sticky top-0 z-50 backdrop-blur-md bg-[#0f1014]/80 border-b border-white/5 transition-all duration-200">
             <div className="max-w-7xl mx-auto px-4 py-3 flex flex-col md:flex-row items-center gap-4">
@@ -88,8 +246,135 @@ const Header = ({
                         </div>
                     </div>
 
-                    {/* 管理员设置按钮（移动端，跟在 Logo 后） */}
+                    {/* 观看历史和管理员设置按钮（移动端，跟在 Logo 后） */}
                     <div className="flex items-center gap-2 md:hidden">
+                        {/* 观看历史按钮（移动端） */}
+                        <button
+                            ref={watchHistoryMobileRef}
+                            onClick={() => setShowWatchHistory(!showWatchHistory)}
+                            className="relative p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
+                            title="观看历史"
+                        >
+                            <Clock size={18} />
+                            {watchHistory.length > 0 && (
+                                <span className="absolute top-0 right-0 w-2 h-2 bg-blue-500 rounded-full"></span>
+                            )}
+
+                            {/* 观看历史面板（移动端） */}
+                            {showWatchHistory && (
+                                <div 
+                                    ref={watchHistoryMobilePanelRef}
+                                    className="absolute right-0 top-full mt-2 w-[calc(100vw-1rem)] sm:w-80 max-w-72 bg-slate-800 rounded-xl shadow-xl border border-white/10 z-50 max-h-96 overflow-hidden flex flex-col"
+                                    onClick={(e) => e.stopPropagation()}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                >
+                                    <div className="p-3 border-b border-white/10 flex items-center justify-between">
+                                        <span className="text-sm font-medium text-white flex items-center gap-2">
+                                            <Clock size={16} />
+                                            观看历史
+                                        </span>
+                                        {watchHistory.length > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    clearWatchHistory();
+                                                    setWatchHistory([]);
+                                                }}
+                                                className="text-xs text-slate-400 hover:text-red-400 transition-colors"
+                                            >
+                                                清空全部
+                                            </button>
+                                        )}
+                                    </div>
+                                    {watchHistory.length > 0 ? (
+                                        <div className="overflow-y-auto custom-scrollbar p-2">
+                                            {watchHistory.map((item, index) => (
+                                                <div
+                                                    key={index}
+                                                    className="group flex items-start gap-3 p-2 rounded-lg hover:bg-slate-700/50 transition-colors cursor-pointer mb-1"
+                                                    onMouseDown={(e) => {
+                                                        e.stopPropagation();
+                                                    }}
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        // 检查是否点击的是删除按钮（通过检查是否包含 X 图标）
+                                                        const deleteButton = e.target.closest('button[type="button"]');
+                                                        if (deleteButton && deleteButton.querySelector('svg')) {
+                                                            console.log('点击了删除按钮，不触发导航');
+                                                            return;
+                                                        }
+                                                        console.log('=== 点击事件触发 ===');
+                                                        console.log('点击的元素:', e.target);
+                                                        console.log('历史项:', item);
+                                                        handleWatchHistoryClick(item);
+                                                    }}
+                                                >
+                                                    {/* 封面 */}
+                                                    <div className="w-12 h-16 flex-shrink-0 rounded overflow-hidden bg-slate-700/50">
+                                                        <img
+                                                            src={item.vod_pic || ''}
+                                                            alt={item.vod_name}
+                                                            className="w-full h-full object-cover"
+                                                            onError={(e) => {
+                                                                e.target.style.display = 'none';
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    {/* 信息 */}
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-start justify-between gap-2">
+                                                            <h4 className="text-sm font-medium text-slate-200 line-clamp-2 group-hover:text-blue-400 transition-colors text-left">
+                                                                {truncateText(item.vod_name, 20)}
+                                                            </h4>
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    removeWatchHistory(item.vod_id, item.sourceKey);
+                                                                    setWatchHistory(getWatchHistory());
+                                                                }}
+                                                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-600 rounded transition-all flex-shrink-0"
+                                                            >
+                                                                <X size={14} className="text-slate-400 hover:text-red-400" />
+                                                            </button>
+                                                        </div>
+                                                        {item.episodeName && item.currentTime > 0 && item.duration > 0 && (
+                                                            <p className="text-xs text-slate-400 mt-1 text-left truncate">
+                                                                {item.episodeName}（{(() => {
+                                                                    const percentage = (item.currentTime / item.duration) * 100;
+                                                                    return percentage < 1 ? '观看不足1%' : `观看至${Math.round(percentage)}%`;
+                                                                })()}）
+                                                            </p>
+                                                        )}
+                                                        {!item.episodeName && item.currentTime > 0 && item.duration > 0 && (
+                                                            <p className="text-xs text-slate-400 mt-1 text-left">
+                                                                {(() => {
+                                                                    const percentage = (item.currentTime / item.duration) * 100;
+                                                                    return percentage < 1 ? '观看不足1%' : `观看至${Math.round(percentage)}%`;
+                                                                })()}
+                                                            </p>
+                                                        )}
+                                                        {item.updatedAt && (
+                                                            <p className="text-xs text-slate-500 mt-0.5 text-left">
+                                                                {formatWatchTime(item.updatedAt)}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="px-3 py-8 text-center text-sm text-slate-500">
+                                            无观看历史
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </button>
+
+                        {/* 管理员设置按钮（移动端） */}
                         {userRole === 'admin' && (
                             <button
                                 onClick={() => setShowAdminDialog(true)}
@@ -102,15 +387,76 @@ const Header = ({
                     </div>
                 </div>
 
-                <form onSubmit={handleSearch} className="flex-1 w-full max-w-lg relative group">
+                <form onSubmit={handleSearch} className="flex-1 w-full max-w-lg relative group" ref={searchInputRef}>
                     <input
                         type="text"
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
+                        onFocus={() => setShowSearchHistory(true)}
                         placeholder="搜索电影、电视剧、综艺..."
                         className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl pl-11 pr-4 py-2.5 text-sm focus:outline-none focus:border-blue-500/50 focus:bg-slate-800 focus:ring-4 focus:ring-blue-500/10 transition-all placeholder:text-slate-500"
                     />
                     <Search className="absolute left-3.5 top-3 text-slate-500 group-focus-within:text-blue-400 transition-colors" size={18} />
+
+                    {/* 搜索历史下拉菜单 */}
+                    {showSearchHistory && (
+                        <div
+                            ref={searchHistoryRef}
+                            className="absolute top-full left-0 right-0 mt-2 bg-slate-800 rounded-xl shadow-xl border border-white/10 z-50 max-h-80 overflow-y-auto"
+                        >
+                            <div className="p-2">
+                                <div className="flex items-center justify-between px-3 py-2 mb-1">
+                                    <span className="text-xs text-slate-400 flex items-center gap-1.5">
+                                        <History size={14} />
+                                        搜索历史
+                                    </span>
+                                    {searchHistory.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                clearSearchHistory();
+                                                setSearchHistory([]);
+                                            }}
+                                            className="text-xs text-slate-500 hover:text-red-400 transition-colors"
+                                        >
+                                            清空全部
+                                        </button>
+                                    )}
+                                </div>
+                                {searchHistory.length > 0 ? (
+                                    <div className="space-y-1">
+                                        {searchHistory.map((query, index) => (
+                                            <div
+                                                key={index}
+                                                className="flex items-center justify-between group px-3 py-2 rounded-lg hover:bg-slate-700/50 transition-colors cursor-pointer"
+                                                onClick={() => handleSearchHistoryClick(query)}
+                                            >
+                                                <span className="text-sm text-slate-300 flex-1 truncate mr-2">
+                                                    {truncateText(query, 25)}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        removeSearchHistory(query);
+                                                        setSearchHistory(getSearchHistory());
+                                                    }}
+                                                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-600 rounded transition-all"
+                                                >
+                                                    <X size={14} className="text-slate-400 hover:text-red-400" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="px-3 py-6 text-center text-sm text-slate-500">
+                                        无搜索历史
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
 
                     {/* 搜索按钮下拉菜单 */}
                     <div className="absolute right-0 top-0 bottom-0 flex items-center" ref={searchButtonRef}>
@@ -325,9 +671,136 @@ const Header = ({
                     </div>
                 </form>
 
-                {/* 管理员设置按钮（桌面端，右上角） */}
-                {userRole === 'admin' && (
-                    <div className="hidden md:flex items-center ml-auto">
+                {/* 观看历史和管理员设置按钮（桌面端，右上角） */}
+                <div className="hidden md:flex items-center ml-auto gap-2">
+                    {/* 观看历史按钮 */}
+                    <button
+                        ref={watchHistoryRef}
+                        onClick={() => setShowWatchHistory(!showWatchHistory)}
+                        className="relative p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
+                        title="观看历史"
+                    >
+                        <Clock size={18} />
+                        {watchHistory.length > 0 && (
+                            <span className="absolute top-0 right-0 w-2 h-2 bg-blue-500 rounded-full"></span>
+                        )}
+
+                        {/* 观看历史面板 */}
+                        {showWatchHistory && (
+                            <div 
+                                ref={watchHistoryPanelRef}
+                                className="absolute right-0 top-full mt-2 w-80 bg-slate-800 rounded-xl shadow-xl border border-white/10 z-50 max-h-96 overflow-hidden flex flex-col"
+                                onClick={(e) => e.stopPropagation()}
+                                onMouseDown={(e) => e.stopPropagation()}
+                            >
+                                <div className="p-3 border-b border-white/10 flex items-center justify-between">
+                                    <span className="text-sm font-medium text-white flex items-center gap-2">
+                                        <Clock size={16} />
+                                        观看历史
+                                    </span>
+                                    {watchHistory.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                clearWatchHistory();
+                                                setWatchHistory([]);
+                                            }}
+                                            className="text-xs text-slate-400 hover:text-red-400 transition-colors"
+                                        >
+                                            清空全部
+                                        </button>
+                                    )}
+                                </div>
+                                {watchHistory.length > 0 ? (
+                                    <div className="overflow-y-auto custom-scrollbar p-2">
+                                    {watchHistory.map((item, index) => (
+                                    <div
+                                        key={index}
+                                        className="group flex items-start gap-3 p-2 rounded-lg hover:bg-slate-700/50 transition-colors cursor-pointer mb-1"
+                                        onMouseDown={(e) => {
+                                            e.stopPropagation();
+                                        }}
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            // 检查是否点击的是删除按钮（通过检查是否包含 X 图标）
+                                            const deleteButton = e.target.closest('button[type="button"]');
+                                            if (deleteButton && deleteButton.querySelector('svg')) {
+                                                console.log('点击了删除按钮，不触发导航');
+                                                return;
+                                            }
+                                            console.log('=== 点击事件触发 ===');
+                                            console.log('点击的元素:', e.target);
+                                            console.log('历史项:', item);
+                                            handleWatchHistoryClick(item);
+                                        }}
+                                    >
+                                            {/* 封面 */}
+                                            <div className="w-12 h-16 flex-shrink-0 rounded overflow-hidden bg-slate-700/50">
+                                                <img
+                                                    src={item.vod_pic || ''}
+                                                    alt={item.vod_name}
+                                                    className="w-full h-full object-cover"
+                                                    onError={(e) => {
+                                                        e.target.style.display = 'none';
+                                                    }}
+                                                />
+                                            </div>
+                                            {/* 信息 */}
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <h4 className="text-sm font-medium text-slate-200 line-clamp-2 group-hover:text-blue-400 transition-colors text-left">
+                                                        {truncateText(item.vod_name, 20)}
+                                                    </h4>
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            removeWatchHistory(item.vod_id, item.sourceKey);
+                                                            setWatchHistory(getWatchHistory());
+                                                        }}
+                                                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-600 rounded transition-all flex-shrink-0"
+                                                    >
+                                                        <X size={14} className="text-slate-400 hover:text-red-400" />
+                                                    </button>
+                                                </div>
+                                                {item.episodeName && item.currentTime > 0 && item.duration > 0 && (
+                                                    <p className="text-xs text-slate-400 mt-1 text-left truncate">
+                                                        {item.episodeName}（{(() => {
+                                                            const percentage = (item.currentTime / item.duration) * 100;
+                                                            return percentage < 1 ? '观看不足1%' : `观看至${Math.round(percentage)}%`;
+                                                        })()}）
+                                                    </p>
+                                                )}
+                                                {!item.episodeName && item.currentTime > 0 && item.duration > 0 && (
+                                                    <p className="text-xs text-slate-400 mt-1 text-left">
+                                                        {(() => {
+                                                            const percentage = (item.currentTime / item.duration) * 100;
+                                                            return percentage < 1 ? '观看不足1%' : `观看至${Math.round(percentage)}%`;
+                                                        })()}
+                                                    </p>
+                                                )}
+                                                {item.updatedAt && (
+                                                    <p className="text-xs text-slate-500 mt-0.5 text-left">
+                                                        {formatWatchTime(item.updatedAt)}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                    </div>
+                                ) : (
+                                    <div className="px-3 py-8 text-center text-sm text-slate-500">
+                                        无观看历史
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </button>
+
+                    {/* 管理员设置按钮 */}
+                    {userRole === 'admin' && (
                         <button
                             onClick={() => setShowAdminDialog(true)}
                             className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
@@ -335,8 +808,9 @@ const Header = ({
                         >
                             <Settings size={18} />
                         </button>
-                    </div>
-                )}
+                    )}
+                </div>
+
             </div>
 
             {/* 资源源选择器 (仅在列表页显示) */}

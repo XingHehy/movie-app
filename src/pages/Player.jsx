@@ -3,6 +3,7 @@ import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import VideoDetail from '../components/VideoDetail';
 import { api } from '../api';
 import { stopAllPlayers } from '../utils/playerManager';
+import { getVideoWatchHistory } from '../utils/historyManager';
 
 export default function Player() {
   const { sourceKey, videoId } = useParams();
@@ -13,6 +14,7 @@ export default function Player() {
   const [parsedEpisodes, setParsedEpisodes] = useState([]);
   const [currentEpisodeIndex, setCurrentEpisodeIndex] = useState(0);
   const [recommendVideos, setRecommendVideos] = useState(location.state?.recommendations || []);
+  const [resumeTime, setResumeTime] = useState(0);
 
   useEffect(() => {
     // Stop players when entering/leaving
@@ -22,19 +24,35 @@ export default function Player() {
   useEffect(() => {
     // When URL params change, update video content
     const newVideo = location.state?.video;
+    const resumeEpisode = location.state?.resumeEpisode;
+    const resumeTimeFromState = location.state?.resumeTime || 0;
 
     if (newVideo) {
       // If video data is passed in state, use it directly
       setCurrentVideo(newVideo);
       // 使用过滤函数只获取m3u8格式的播放数据
-      setParsedEpisodes(parseAndFilterM3u8PlayUrl(newVideo));
-      // Reset to first episode when switching videos
-      setCurrentEpisodeIndex(0);
+      const episodes = parseAndFilterM3u8PlayUrl(newVideo);
+      setParsedEpisodes(episodes);
+      
+      // 检查是否需要恢复播放进度
+      if (resumeEpisode !== undefined && resumeEpisode >= 0 && resumeEpisode < episodes.length) {
+        setCurrentEpisodeIndex(resumeEpisode);
+        setResumeTime(resumeTimeFromState);
+      } else {
+        // 尝试从观看历史中恢复
+        const watchHistory = getVideoWatchHistory(newVideo.vod_id, newVideo.sourceKey || sourceKey);
+        if (watchHistory && watchHistory.episodeIndex >= 0 && watchHistory.episodeIndex < episodes.length) {
+          setCurrentEpisodeIndex(watchHistory.episodeIndex);
+          setResumeTime(watchHistory.currentTime || 0);
+        } else {
+          setCurrentEpisodeIndex(0);
+          setResumeTime(0);
+        }
+      }
     } else if (sourceKey && videoId) {
       // Otherwise fetch from API
       fetchDetail();
-      // Reset to first episode when loading new video from API
-      setCurrentEpisodeIndex(0);
+      // 在 fetchDetail 中会处理恢复逻辑
     }
   }, [sourceKey, videoId, location.state]);
 
@@ -52,7 +70,27 @@ export default function Player() {
 
         setCurrentVideo(video);
         // 使用过滤函数只获取m3u8格式的播放数据
-        setParsedEpisodes(parseAndFilterM3u8PlayUrl(video));
+        const episodes = parseAndFilterM3u8PlayUrl(video);
+        setParsedEpisodes(episodes);
+        
+        // 检查是否需要恢复播放进度
+        const resumeEpisode = location.state?.resumeEpisode;
+        const resumeTimeFromState = location.state?.resumeTime || 0;
+        
+        if (resumeEpisode !== undefined && resumeEpisode >= 0 && resumeEpisode < episodes.length) {
+          setCurrentEpisodeIndex(resumeEpisode);
+          setResumeTime(resumeTimeFromState);
+        } else {
+          // 尝试从观看历史中恢复
+          const watchHistory = getVideoWatchHistory(video.vod_id, sourceKey);
+          if (watchHistory && watchHistory.episodeIndex >= 0 && watchHistory.episodeIndex < episodes.length) {
+            setCurrentEpisodeIndex(watchHistory.episodeIndex);
+            setResumeTime(watchHistory.currentTime || 0);
+          } else {
+            setCurrentEpisodeIndex(0);
+            setResumeTime(0);
+          }
+        }
       } else {
         // Handle not found
         console.error("Video not found");
@@ -134,6 +172,7 @@ export default function Player() {
       recommendVideos={recommendVideos}
       onVideoClick={handleVideoClick}
       onBack={handleBack}
+      resumeTime={resumeTime}
     />
   );
 }

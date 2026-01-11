@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { api, setupApi } from './api.js';
 import { stopAllPlayers } from './utils/playerManager.js';
+import { addSearchHistory } from './utils/historyManager.js';
 import LoginScreen from './components/LoginScreen.jsx';
 import Header from './components/Header.jsx';
 import Toast from './components/Toast.jsx';
@@ -23,6 +24,15 @@ export default function App() {
   const [searchSourceMode, setSearchSourceMode] = useState('all'); // 'all' or 'selected'
   const [searchTrigger, setSearchTrigger] = useState(0);
   const [showAdminDialog, setShowAdminDialog] = useState(false);
+  
+  // 缓存首页数据，避免返回时重新加载
+  const [homeCache, setHomeCache] = useState({
+    videos: [],
+    page: 1,
+    totalPages: 1,
+    sourceKey: null,
+    timestamp: 0
+  });
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -37,12 +47,29 @@ export default function App() {
     stopAllPlayers();
   }, [location.pathname]);
 
-  // Handle visibility change
+  // Handle visibility change - 只在页面卸载时停止播放器，切换标签页时只暂停
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.hidden) stopAllPlayers();
+      if (document.hidden) {
+        // 页面隐藏时，只暂停所有视频，不销毁播放器
+        document.querySelectorAll('video').forEach(video => {
+          try {
+            if (!video.paused) {
+              video.pause();
+            }
+          } catch (err) {
+            console.warn('暂停视频失败:', err);
+          }
+        });
+      } else {
+        // 页面重新可见时，不自动恢复播放（让用户手动控制）
+        // 如果需要自动恢复，可以在这里添加逻辑
+      }
     };
+    
+    // 只在页面真正卸载时停止所有播放器
     const handleBeforeUnload = () => stopAllPlayers();
+    
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
@@ -125,6 +152,8 @@ export default function App() {
     e.preventDefault();
     const query = searchQuery.trim();
     if (!query) return;
+    // 保存搜索历史
+    addSearchHistory(query);
     // 增加搜索触发次数，确保即使关键词不变也会触发新搜索
     setSearchTrigger(prev => prev + 1);
     navigate(`/search/${encodeURIComponent(query)}`);
@@ -174,6 +203,8 @@ export default function App() {
               <Home
                 currentSource={currentSource}
                 setToastMessage={setToastMessage}
+                homeCache={homeCache}
+                setHomeCache={setHomeCache}
               />
             }
           />
