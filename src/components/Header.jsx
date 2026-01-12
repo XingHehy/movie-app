@@ -55,11 +55,48 @@ const Header = ({
     const watchHistoryMobileRef = useRef(null);
     const watchHistoryMobilePanelRef = useRef(null);
 
+    // 合并相同名称的观看历史，只保留最后观看的那个源
+    const mergeWatchHistoryByName = (history) => {
+        if (!history || history.length === 0) return [];
+        
+        const mergedMap = new Map();
+        
+        history.forEach(item => {
+            const name = item.vod_name;
+            if (!name) return;
+            
+            if (!mergedMap.has(name)) {
+                // 创建新记录
+                mergedMap.set(name, { ...item });
+            } else {
+                // 如果已存在同名记录，比较更新时间，只保留最新的
+                const existing = mergedMap.get(name);
+                if ((item.updatedAt || 0) > (existing.updatedAt || 0)) {
+                    // 替换为最新的记录
+                    mergedMap.set(name, { ...item });
+                }
+            }
+        });
+        
+        // 转换为数组并按更新时间排序
+        const merged = Array.from(mergedMap.values());
+        merged.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        
+        return merged;
+    };
+
+    // 获取源名称
+    const getSourceName = (sourceKey) => {
+        const source = sources.find(s => s.key === sourceKey);
+        return source ? source.name : sourceKey;
+    };
+
     // 加载搜索历史和观看历史
     useEffect(() => {
         setSearchHistory(getSearchHistory());
-        setWatchHistory(getWatchHistory());
-    }, []);
+        const rawHistory = getWatchHistory();
+        setWatchHistory(mergeWatchHistoryByName(rawHistory));
+    }, [sources]);
 
     // 监听搜索历史变化（从其他地方添加）
     useEffect(() => {
@@ -72,10 +109,11 @@ const Header = ({
     // 监听观看历史变化
     useEffect(() => {
         const interval = setInterval(() => {
-            setWatchHistory(getWatchHistory());
+            const rawHistory = getWatchHistory();
+            setWatchHistory(mergeWatchHistoryByName(rawHistory));
         }, 2000);
         return () => clearInterval(interval);
-    }, []);
+    }, [sources]);
 
     // 点击外部区域关闭下拉菜单和设置面板
     useEffect(() => {
@@ -249,16 +287,18 @@ const Header = ({
                     {/* 观看历史和管理员设置按钮（移动端，跟在 Logo 后） */}
                     <div className="flex items-center gap-2 md:hidden">
                         {/* 观看历史按钮（移动端） */}
-                        <button
-                            ref={watchHistoryMobileRef}
-                            onClick={() => setShowWatchHistory(!showWatchHistory)}
-                            className="relative p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
-                            title="观看历史"
-                        >
-                            <Clock size={18} />
-                            {watchHistory.length > 0 && (
-                                <span className="absolute top-0 right-0 w-2 h-2 bg-blue-500 rounded-full"></span>
-                            )}
+                        <div className="relative">
+                            <button
+                                ref={watchHistoryMobileRef}
+                                onClick={() => setShowWatchHistory(!showWatchHistory)}
+                                className="relative p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
+                                title="观看历史"
+                            >
+                                <Clock size={18} />
+                                {watchHistory.length > 0 && (
+                                    <span className="absolute top-0 right-0 w-2 h-2 bg-blue-500 rounded-full"></span>
+                                )}
+                            </button>
 
                             {/* 观看历史面板（移动端） */}
                             {showWatchHistory && (
@@ -332,14 +372,20 @@ const Header = ({
                                                                 type="button"
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
-                                                                    removeWatchHistory(item.vod_id, item.sourceKey);
-                                                                    setWatchHistory(getWatchHistory());
+                                                                    // 删除所有相同名称的记录
+                                                                    const rawHistory = getWatchHistory();
+                                                                    const filteredHistory = rawHistory.filter(
+                                                                        h => h.vod_name !== item.vod_name
+                                                                    );
+                                                                    localStorage.setItem('movie_app_watch_history', JSON.stringify(filteredHistory));
+                                                                    setWatchHistory(mergeWatchHistoryByName(filteredHistory));
                                                                 }}
                                                                 className="opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-600 rounded transition-all flex-shrink-0"
                                                             >
                                                                 <X size={14} className="text-slate-400 hover:text-red-400" />
                                                             </button>
                                                         </div>
+                                                        {/* 显示观看进度 */}
                                                         {item.episodeName && item.currentTime > 0 && item.duration > 0 && (
                                                             <p className="text-xs text-slate-400 mt-1 text-left truncate">
                                                                 {item.episodeName}（{(() => {
@@ -357,8 +403,14 @@ const Header = ({
                                                             </p>
                                                         )}
                                                         {item.updatedAt && (
-                                                            <p className="text-xs text-slate-500 mt-0.5 text-left">
-                                                                {formatWatchTime(item.updatedAt)}
+                                                            <p className="text-xs text-slate-500 mt-0.5 text-left flex items-center gap-1.5">
+                                                                {item.sourceKey && (
+                                                                    <>
+                                                                        <span>{getSourceName(item.sourceKey)}</span>
+                                                                        <span className="text-slate-600">·</span>
+                                                                    </>
+                                                                )}
+                                                                <span>{formatWatchTime(item.updatedAt)}</span>
                                                             </p>
                                                         )}
                                                     </div>
@@ -372,7 +424,7 @@ const Header = ({
                                     )}
                                 </div>
                             )}
-                        </button>
+                        </div>
 
                         {/* 管理员设置按钮（移动端） */}
                         {userRole === 'admin' && (
@@ -393,6 +445,16 @@ const Header = ({
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
                         onFocus={() => setShowSearchHistory(true)}
+                        onBlur={(e) => {
+                            // 延迟关闭，以便点击搜索历史项时能够触发点击事件
+                            setTimeout(() => {
+                                // 检查焦点是否移到了搜索历史面板内
+                                const activeElement = document.activeElement;
+                                if (!searchHistoryRef.current || !searchHistoryRef.current.contains(activeElement)) {
+                                    setShowSearchHistory(false);
+                                }
+                            }, 200);
+                        }}
                         placeholder="搜索电影、电视剧、综艺..."
                         className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl pl-11 pr-4 py-2.5 text-sm focus:outline-none focus:border-blue-500/50 focus:bg-slate-800 focus:ring-4 focus:ring-blue-500/10 transition-all placeholder:text-slate-500"
                     />
@@ -674,16 +736,18 @@ const Header = ({
                 {/* 观看历史和管理员设置按钮（桌面端，右上角） */}
                 <div className="hidden md:flex items-center ml-auto gap-2">
                     {/* 观看历史按钮 */}
-                    <button
-                        ref={watchHistoryRef}
-                        onClick={() => setShowWatchHistory(!showWatchHistory)}
-                        className="relative p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
-                        title="观看历史"
-                    >
-                        <Clock size={18} />
-                        {watchHistory.length > 0 && (
-                            <span className="absolute top-0 right-0 w-2 h-2 bg-blue-500 rounded-full"></span>
-                        )}
+                    <div className="relative">
+                        <button
+                            ref={watchHistoryRef}
+                            onClick={() => setShowWatchHistory(!showWatchHistory)}
+                            className="relative p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
+                            title="观看历史"
+                        >
+                            <Clock size={18} />
+                            {watchHistory.length > 0 && (
+                                <span className="absolute top-0 right-0 w-2 h-2 bg-blue-500 rounded-full"></span>
+                            )}
+                        </button>
 
                         {/* 观看历史面板 */}
                         {showWatchHistory && (
@@ -757,14 +821,20 @@ const Header = ({
                                                         type="button"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            removeWatchHistory(item.vod_id, item.sourceKey);
-                                                            setWatchHistory(getWatchHistory());
+                                                            // 删除所有相同名称的记录
+                                                            const rawHistory = getWatchHistory();
+                                                            const filteredHistory = rawHistory.filter(
+                                                                h => h.vod_name !== item.vod_name
+                                                            );
+                                                            localStorage.setItem('movie_app_watch_history', JSON.stringify(filteredHistory));
+                                                            setWatchHistory(mergeWatchHistoryByName(filteredHistory));
                                                         }}
                                                         className="opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-600 rounded transition-all flex-shrink-0"
                                                     >
                                                         <X size={14} className="text-slate-400 hover:text-red-400" />
                                                     </button>
                                                 </div>
+                                                {/* 显示观看进度 */}
                                                 {item.episodeName && item.currentTime > 0 && item.duration > 0 && (
                                                     <p className="text-xs text-slate-400 mt-1 text-left truncate">
                                                         {item.episodeName}（{(() => {
@@ -782,8 +852,14 @@ const Header = ({
                                                     </p>
                                                 )}
                                                 {item.updatedAt && (
-                                                    <p className="text-xs text-slate-500 mt-0.5 text-left">
-                                                        {formatWatchTime(item.updatedAt)}
+                                                    <p className="text-xs text-slate-500 mt-0.5 text-left flex items-center gap-1.5">
+                                                        {item.sourceKey && (
+                                                            <>
+                                                                <span>{getSourceName(item.sourceKey)}</span>
+                                                                <span className="text-slate-600">·</span>
+                                                            </>
+                                                        )}
+                                                        <span>{formatWatchTime(item.updatedAt)}</span>
                                                     </p>
                                                 )}
                                             </div>
@@ -797,7 +873,7 @@ const Header = ({
                                 )}
                             </div>
                         )}
-                    </button>
+                    </div>
 
                     {/* 管理员设置按钮 */}
                     {userRole === 'admin' && (
