@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Play, Settings, X, History, Clock } from 'lucide-react';
+import { Search, Play, Settings, X, History, Clock, Trash2 } from 'lucide-react';
 import { stopAllPlayers } from '../utils/playerManager.js';
 import { 
     getSearchHistory, 
@@ -321,9 +321,10 @@ const Header = ({
                                                     clearWatchHistory();
                                                     setWatchHistory([]);
                                                 }}
-                                                className="text-xs text-slate-400 hover:text-red-400 transition-colors"
+                                                className="text-xs text-slate-400 hover:text-red-400 transition-colors p-1"
+                                                title="清空全部"
                                             >
-                                                清空全部
+                                                <Trash2 size={14} />
                                             </button>
                                         )}
                                     </div>
@@ -365,8 +366,8 @@ const Header = ({
                                                     {/* 信息 */}
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex items-start justify-between gap-2">
-                                                            <h4 className="text-sm font-medium text-slate-200 line-clamp-2 group-hover:text-blue-400 transition-colors text-left">
-                                                                {truncateText(item.vod_name, 20)}
+                                                            <h4 className="text-sm font-medium text-slate-200 line-clamp-1 group-hover:text-blue-400 transition-colors text-left truncate">
+                                                                {item.vod_name}
                                                             </h4>
                                                             <button
                                                                 type="button"
@@ -385,20 +386,29 @@ const Header = ({
                                                                 <X size={14} className="text-slate-400 hover:text-red-400" />
                                                             </button>
                                                         </div>
-                                                        {/* 显示观看进度 */}
-                                                        {item.episodeName && item.currentTime > 0 && item.duration > 0 && (
+                                                        {/* 显示选集和观看进度 */}
+                                                        {item.episodeName && (
                                                             <p className="text-xs text-slate-400 mt-1 text-left truncate">
-                                                                {item.episodeName}（{(() => {
-                                                                    const percentage = (item.currentTime / item.duration) * 100;
-                                                                    return percentage < 1 ? '观看不足1%' : `观看至${Math.round(percentage)}%`;
-                                                                })()}）
+                                                                {item.episodeName}
+                                                                {(() => {
+                                                                    if (item.currentTime > 0 && item.duration > 0) {
+                                                                        const percentage = (item.currentTime / item.duration) * 100;
+                                                                        return percentage < 1 ? '（观看不足1%）' : `（观看至${Math.round(percentage)}%）`;
+                                                                    } else {
+                                                                        return '（观看不足1%）';
+                                                                    }
+                                                                })()}
                                                             </p>
                                                         )}
-                                                        {!item.episodeName && item.currentTime > 0 && item.duration > 0 && (
+                                                        {!item.episodeName && (
                                                             <p className="text-xs text-slate-400 mt-1 text-left">
                                                                 {(() => {
-                                                                    const percentage = (item.currentTime / item.duration) * 100;
-                                                                    return percentage < 1 ? '观看不足1%' : `观看至${Math.round(percentage)}%`;
+                                                                    if (item.currentTime > 0 && item.duration > 0) {
+                                                                        const percentage = (item.currentTime / item.duration) * 100;
+                                                                        return percentage < 1 ? '观看不足1%' : `观看至${Math.round(percentage)}%`;
+                                                                    } else {
+                                                                        return '观看不足1%';
+                                                                    }
                                                                 })()}
                                                             </p>
                                                         )}
@@ -480,42 +490,48 @@ const Header = ({
                                                 clearSearchHistory();
                                                 setSearchHistory([]);
                                             }}
-                                            className="text-xs text-slate-500 hover:text-red-400 transition-colors"
+                                            className="text-xs text-slate-500 hover:text-red-400 transition-colors p-1"
+                                            title="清空全部"
                                         >
-                                            清空全部
+                                            <Trash2 size={14} />
                                         </button>
                                     )}
                                 </div>
                                 {searchHistory.length > 0 ? (
-                                    <div className="space-y-1">
-                                        {searchHistory.map((query, index) => (
-                                            <div
-                                                key={index}
-                                                className="flex items-center justify-between group px-3 py-2 rounded-lg hover:bg-slate-700/50 transition-colors cursor-pointer"
-                                                onClick={() => handleSearchHistoryClick(query)}
-                                            >
-                                                <span className="text-sm text-slate-300 flex-1 truncate mr-2">
-                                                    {truncateText(query, 25)}
-                                                </span>
-                                                <button
-                                                    type="button"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        removeSearchHistory(query);
-                                                        setSearchHistory(getSearchHistory());
-                                                    }}
-                                                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-600 rounded transition-all"
-                                                >
-                                                    <X size={14} className="text-slate-400 hover:text-red-400" />
-                                                </button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div className="px-3 py-6 text-center text-sm text-slate-500">
-                                        无搜索历史
-                                    </div>
-                                )}
+    // 1. 父容器保持 p-2，给挂在外面的“X”留出空间防止被父容器切掉
+    <div className="flex flex-wrap gap-2 p-2 max-h-24 overflow-hidden">
+        {searchHistory.map((query, index) => (
+            <button
+                key={index}
+                type="button"
+                onClick={() => handleSearchHistoryClick(query)}
+                // 2. 这里的修改：
+                //    - 移除了 'truncate' (这是导致遮挡的罪魁祸首)
+                //    - 移除了 'pr-6'，改为统一的 'px-3' (解决左右宽度不一样的问题)
+                className="group/search-item relative inline-flex items-center max-w-[140px] px-3 py-1 rounded-full bg-slate-700/80 hover:bg-slate-600 text-xs text-slate-200 transition-colors"
+            >
+                {/* 3. 将 truncate 移到文字 span 上，并加个 block 或 max-w 确保生效 */}
+                <span className="truncate max-w-[100px]">{query}</span>
+                
+                <span
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        removeSearchHistory(query);
+                        setSearchHistory(getSearchHistory());
+                    }}
+                    // 保持原样：挂在右上角
+                    className="absolute top-[-6px] right-[-6px] w-4 h-4 bg-slate-900 text-slate-200 hover:text-red-400 transition-colors opacity-0 group-hover/search-item:opacity-100 group-focus-visible/search-item:opacity-100 rounded-full shadow-sm border border-slate-800 flex items-center justify-center z-10"
+                >
+                    <X size={10} />
+                </span>
+            </button>
+        ))}
+    </div>
+) : (
+    <div className="px-3 py-6 text-center text-sm text-slate-500">
+        无搜索历史
+    </div>
+)}
                             </div>
                         </div>
                     )}
@@ -759,7 +775,7 @@ const Header = ({
                             >
                                 <div className="p-3 border-b border-white/10 flex items-center justify-between">
                                     <span className="text-sm font-medium text-white flex items-center gap-2">
-                                        <Clock size={16} />
+                   	             <Clock size={16} />
                                         观看历史
                                     </span>
                                     {watchHistory.length > 0 && (
@@ -770,9 +786,10 @@ const Header = ({
                                                 clearWatchHistory();
                                                 setWatchHistory([]);
                                             }}
-                                            className="text-xs text-slate-400 hover:text-red-400 transition-colors"
+                                            className="text-xs text-slate-400 hover:text-red-400 transition-colors p-1"
+                                            title="清空全部"
                                         >
-                                            清空全部
+                                            <Trash2 size={14} />
                                         </button>
                                     )}
                                 </div>
@@ -814,8 +831,8 @@ const Header = ({
                                             {/* 信息 */}
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-start justify-between gap-2">
-                                                    <h4 className="text-sm font-medium text-slate-200 line-clamp-2 group-hover:text-blue-400 transition-colors text-left">
-                                                        {truncateText(item.vod_name, 20)}
+                                                    <h4 className="text-sm font-medium text-slate-200 line-clamp-1 group-hover:text-blue-400 transition-colors text-left truncate">
+                                                        {item.vod_name}
                                                     </h4>
                                                     <button
                                                         type="button"
@@ -834,20 +851,29 @@ const Header = ({
                                                         <X size={14} className="text-slate-400 hover:text-red-400" />
                                                     </button>
                                                 </div>
-                                                {/* 显示观看进度 */}
-                                                {item.episodeName && item.currentTime > 0 && item.duration > 0 && (
+                                                {/* 显示选集和观看进度 */}
+                                                {item.episodeName && (
                                                     <p className="text-xs text-slate-400 mt-1 text-left truncate">
-                                                        {item.episodeName}（{(() => {
-                                                            const percentage = (item.currentTime / item.duration) * 100;
-                                                            return percentage < 1 ? '观看不足1%' : `观看至${Math.round(percentage)}%`;
-                                                        })()}）
+                                                        {item.episodeName}
+                                                        {(() => {
+                                                            if (item.currentTime > 0 && item.duration > 0) {
+                                                                const percentage = (item.currentTime / item.duration) * 100;
+                                                                return percentage < 1 ? '（观看不足1%）' : `（观看至${Math.round(percentage)}%）`;
+                                                            } else {
+                                                                return '（观看不足1%）';
+                                                            }
+                                                        })()}
                                                     </p>
                                                 )}
-                                                {!item.episodeName && item.currentTime > 0 && item.duration > 0 && (
+                                                {!item.episodeName && (
                                                     <p className="text-xs text-slate-400 mt-1 text-left">
                                                         {(() => {
-                                                            const percentage = (item.currentTime / item.duration) * 100;
-                                                            return percentage < 1 ? '观看不足1%' : `观看至${Math.round(percentage)}%`;
+                                                            if (item.currentTime > 0 && item.duration > 0) {
+                                                                const percentage = (item.currentTime / item.duration) * 100;
+                                                                return percentage < 1 ? '观看不足1%' : `观看至${Math.round(percentage)}%`;
+                                                            } else {
+                                                                return '观看不足1%';
+                                                            }
                                                         })()}
                                                     </p>
                                                 )}

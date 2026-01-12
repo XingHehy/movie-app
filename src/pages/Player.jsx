@@ -3,7 +3,7 @@ import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import VideoDetail from '../components/VideoDetail';
 import { api } from '../api';
 import { stopAllPlayers } from '../utils/playerManager';
-import { getVideoWatchHistory } from '../utils/historyManager';
+import { getVideoWatchHistory, updateWatchHistory } from '../utils/historyManager';
 
 export default function Player() {
   const { sourceKey, videoId } = useParams();
@@ -33,6 +33,23 @@ export default function Player() {
       // 使用过滤函数只获取m3u8格式的播放数据
       const episodes = parseAndFilterM3u8PlayUrl(newVideo);
       setParsedEpisodes(episodes);
+      
+      // 立即记录观看历史（只要进入播放页面就记录）
+      if (newVideo.vod_id && newVideo.vod_name) {
+        const episodeIdx = resumeEpisode !== undefined ? resumeEpisode : 0;
+        const episodeName = episodes?.[episodeIdx]?.name || (episodes.length > 0 ? `第${episodeIdx + 1}集` : '第1集');
+        
+        updateWatchHistory({
+          vod_id: newVideo.vod_id,
+          sourceKey: newVideo.sourceKey || sourceKey || '',
+          vod_name: newVideo.vod_name,
+          vod_pic: newVideo.vod_pic || '',
+          episodeIndex: episodeIdx,
+          episodeName: episodeName,
+          currentTime: resumeTimeFromState || 0,
+          duration: 0 // 视频还没加载，duration 设为 0
+        });
+      }
       
       // 检查是否需要恢复播放进度
       if (resumeEpisode !== undefined && resumeEpisode >= 0 && resumeEpisode < episodes.length) {
@@ -76,20 +93,36 @@ export default function Player() {
         // 检查是否需要恢复播放进度
         const resumeEpisode = location.state?.resumeEpisode;
         const resumeTimeFromState = location.state?.resumeTime || 0;
+        const watchHistory = getVideoWatchHistory(video.vod_id, sourceKey);
+        
+        let initialEpisodeIndex = 0;
+        let initialResumeTime = 0;
         
         if (resumeEpisode !== undefined && resumeEpisode >= 0 && resumeEpisode < episodes.length) {
-          setCurrentEpisodeIndex(resumeEpisode);
-          setResumeTime(resumeTimeFromState);
-        } else {
-          // 尝试从观看历史中恢复
-          const watchHistory = getVideoWatchHistory(video.vod_id, sourceKey);
-          if (watchHistory && watchHistory.episodeIndex >= 0 && watchHistory.episodeIndex < episodes.length) {
-            setCurrentEpisodeIndex(watchHistory.episodeIndex);
-            setResumeTime(watchHistory.currentTime || 0);
-          } else {
-            setCurrentEpisodeIndex(0);
-            setResumeTime(0);
-          }
+          initialEpisodeIndex = resumeEpisode;
+          initialResumeTime = resumeTimeFromState;
+        } else if (watchHistory && watchHistory.episodeIndex >= 0 && watchHistory.episodeIndex < episodes.length) {
+          initialEpisodeIndex = watchHistory.episodeIndex;
+          initialResumeTime = watchHistory.currentTime || 0;
+        }
+        
+        setCurrentEpisodeIndex(initialEpisodeIndex);
+        setResumeTime(initialResumeTime);
+        
+        // 立即记录观看历史（只要进入播放页面就记录）
+        if (video.vod_id && video.vod_name) {
+          const episodeName = episodes?.[initialEpisodeIndex]?.name || (episodes.length > 0 ? `第${initialEpisodeIndex + 1}集` : '第1集');
+          
+          updateWatchHistory({
+            vod_id: video.vod_id,
+            sourceKey: sourceKey || '',
+            vod_name: video.vod_name,
+            vod_pic: video.vod_pic || '',
+            episodeIndex: initialEpisodeIndex,
+            episodeName: episodeName,
+            currentTime: initialResumeTime,
+            duration: 0 // 视频还没加载，duration 设为 0
+          });
         }
       } else {
         // Handle not found
