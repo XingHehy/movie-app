@@ -9,6 +9,12 @@
 docker build -t movie-app .
 ```
 
+或者直接拉取已构建的镜像：
+
+```bash
+docker pull xinghehy/movie-app:latest
+```
+
 **第二步：运行容器**
 使用 Docker Compose 启动：
 
@@ -191,3 +197,9 @@ docker run -d \
 
 - **v1.0**
   - 初步实现功能
+
+---
+
+## 友情链接
+
+- [Docker Hub 镜像仓库](https://hub.docker.com/r/xinghehy/movie-app)
