@@ -58,6 +58,12 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
   const adRangesRef = useRef([]);
   const lastAutoSkipRef = useRef({ at: 0, target: 0 });
   const lastToastRef = useRef({ detectAt: 0, skipAt: 0 });
+  const longPressTimerRef = useRef(null);
+  const originalSpeedRef = useRef(1);
+  const isLongPressingRef = useRef(false);
+  const [showSpeedIndicator, setShowSpeedIndicator] = useState(false);
+  const [adSkipStatus, setAdSkipStatus] = useState(null); // null | 'preparing' | 'skipped'
+  const adSkipTimeoutRef = useRef(null);
 
   const detectAdRangesFromLevel = (details, playlistUrl) => {
     const fragments = details?.fragments || [];
@@ -346,6 +352,17 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
         // 尝试恢复播放进度
         restorePlaybackTime();
 
+        // 获取 Plyr 容器，用于添加指示器
+        const plyrElement = playerContainerRef.current?.querySelector('.plyr');
+
+        // 创建指示器容器并添加到 Plyr 容器中
+        const indicatorContainer = document.createElement('div');
+        indicatorContainer.id = 'speed-indicator-container';
+        indicatorContainer.style.cssText = 'position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2147483647;';
+        if (plyrElement) {
+          plyrElement.appendChild(indicatorContainer);
+        }
+
         // 拦截全屏按钮点击事件，优先使用 iOS 原生全屏
         // 使用 capture 阶段捕获事件，并在检测到 iPad/iOS 时阻止 Plyr 的默认行为
         const fullscreenBtn = playerContainerRef.current?.querySelector('button[data-plyr="fullscreen"]');
@@ -396,6 +413,102 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
             }
           }, true); // useCapture = true
         }
+
+        // 添加移动端长按加速功能
+        const handleLongPressStart = (e) => {
+          // 防止在控制栏上触发
+          if (e.target.closest('.plyr__controls')) {
+            return;
+          }
+
+          // 清除之前的定时器
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+          }
+
+          // 500ms后触发长按加速
+          longPressTimerRef.current = setTimeout(() => {
+            if (video && plyr) {
+              const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || plyr.fullscreen.active;
+              console.log('🚀 长按加速触发, 全屏状态:', isFullscreen);
+              originalSpeedRef.current = plyr.speed;
+              plyr.speed = 2;
+              isLongPressingRef.current = true;
+
+              // 显示速度指示器 - 使用函数式更新确保状态正确
+              setShowSpeedIndicator(() => {
+                console.log('✅ 显示加速指示器, 全屏状态:', isFullscreen);
+
+                // 直接操作DOM显示指示器
+                const container = document.getElementById('speed-indicator-container');
+                if (container) {
+                  container.innerHTML = `
+                    <div style="position: absolute; top: 40px; left: 50%; transform: translateX(-50%); pointer-events: none; z-index: 2147483647;">
+                      <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.3); padding: 8px 16px; border-radius: 8px; backdrop-filter: blur(4px);">
+                        <div style="display: flex; align-items: center; gap: 3px;">
+                          <div style="width: 4px; height: 14px; background: white; border-radius: 9999px; animation: pulse 0.6s ease-in-out infinite;"></div>
+                          <div style="width: 4px; height: 16px; background: white; border-radius: 9999px; animation: pulse 0.6s ease-in-out 0.2s infinite;"></div>
+                          <div style="width: 4px; height: 14px; background: white; border-radius: 9999px; animation: pulse 0.6s ease-in-out 0.4s infinite;"></div>
+                        </div>
+                        <span style="font-size: 16px; font-weight: 600; color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">2x 加速中</span>
+                      </div>
+                    </div>
+                  `;
+                }
+
+                return true;
+              });
+
+              // 阻止后续的点击事件
+              const preventClick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                video.removeEventListener('click', preventClick, true);
+              };
+              video.addEventListener('click', preventClick, true);
+            }
+          }, 500);
+        };
+
+        const handleLongPressEnd = () => {
+          // 清除定时器
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+          }
+
+          // 恢复原速度
+          if (isLongPressingRef.current && video && plyr) {
+            console.log('⏹️ 长按结束，恢复速度');
+            plyr.speed = originalSpeedRef.current;
+            isLongPressingRef.current = false;
+
+            // 隐藏速度指示器 - 使用函数式更新
+            setShowSpeedIndicator(() => {
+              console.log('❌ 隐藏加速指示器');
+
+              // 直接操作DOM隐藏指示器
+              const container = document.getElementById('speed-indicator-container');
+              if (container) {
+                container.innerHTML = '';
+              }
+
+              return false;
+            });
+          }
+        };
+
+        // 直接在video元素上监听事件，确保全屏时也能工作
+        video.addEventListener('touchstart', handleLongPressStart, { passive: true });
+        video.addEventListener('touchend', handleLongPressEnd, { passive: true });
+        video.addEventListener('touchcancel', handleLongPressEnd, { passive: true });
+        video.addEventListener('touchmove', handleLongPressEnd, { passive: true });
+
+        // 监听鼠标事件（桌面端也支持）
+        video.addEventListener('mousedown', handleLongPressStart);
+        video.addEventListener('mouseup', handleLongPressEnd);
+        video.addEventListener('mouseleave', handleLongPressEnd);
       });
 
       plyr.on('canplay', () => {
@@ -458,6 +571,48 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
         // 自动跳过疑似广告区间（可手动开关）
         const adRanges = adRangesRef.current;
         if (autoSkipAdsEnabledRef.current && adRanges.length > 0) {
+          // 检查是否即将进入广告区间（提前3秒提示）
+          const upcomingRange = adRanges.find((range) => currentTime >= (range.start - 3) && currentTime < (range.start - 0.15));
+          if (upcomingRange) {
+            const now = Date.now();
+            if (now - lastToastRef.current.detectAt > 3000) {
+              lastToastRef.current.detectAt = now;
+              setAdSkipStatus('preparing');
+
+              // 直接操作DOM显示准备跳过广告提示
+              const container = document.getElementById('speed-indicator-container');
+              if (container) {
+                container.innerHTML = `
+                  <div style="position: absolute; top: 40px; left: 50%; transform: translateX(-50%); pointer-events: none; z-index: 2147483647;">
+                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.3); padding: 8px 16px; border-radius: 8px; backdrop-filter: blur(4px);">
+                      <svg style="width: 18px; height: 18px; color: rgb(250,204,21); filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); animation: pulse 0.6s ease-in-out infinite;" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/>
+                      </svg>
+                      <span style="font-size: 16px; font-weight: 600; color: rgb(250,204,21); text-shadow: 0 1px 2px rgba(0,0,0,0.5);">准备跳过广告</span>
+                    </div>
+                  </div>
+                `;
+              }
+
+              // 清除之前的定时器
+              if (adSkipTimeoutRef.current) {
+                clearTimeout(adSkipTimeoutRef.current);
+              }
+
+              // 3秒后自动隐藏（如果还没跳过的话）
+              adSkipTimeoutRef.current = setTimeout(() => {
+                if (adSkipStatus === 'preparing') {
+                  setAdSkipStatus(null);
+                  const container = document.getElementById('speed-indicator-container');
+                  if (container && !isLongPressingRef.current) {
+                    container.innerHTML = '';
+                  }
+                }
+              }, 3000);
+            }
+          }
+
+          // 检查是否在广告区间内
           const hitRange = adRanges.find((range) => currentTime >= (range.start - 0.15) && currentTime < range.end);
           if (hitRange) {
             const now = Date.now();
@@ -474,14 +629,42 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
                 `(${hitRange.start.toFixed(2)}s -> ${hitRange.end.toFixed(2)}s), ` +
                 `当前=${formatSecondsToHMS(currentTime)} (${currentTime.toFixed(2)}s), 跳转到=${formatSecondsToHMS(targetTime)} (${targetTime.toFixed(2)}s)`
               );
-              if (setToastMessage) {
-                const toastNow = Date.now();
-                if (toastNow - lastToastRef.current.skipAt > 1500) {
-                  lastToastRef.current.skipAt = toastNow;
-                  setToastMessage(
-                    `已自动跳过疑似广告片段 ${hitRange.startHMS || formatSecondsToHMS(hitRange.start)} ~ ${hitRange.endHMS || formatSecondsToHMS(hitRange.end)}`
-                  );
+
+              // 显示已跳过广告指示器
+              const toastNow = Date.now();
+              if (toastNow - lastToastRef.current.skipAt > 1500) {
+                lastToastRef.current.skipAt = toastNow;
+                setAdSkipStatus('skipped');
+
+                // 直接操作DOM显示已跳过广告提示
+                const container = document.getElementById('speed-indicator-container');
+                if (container) {
+                  container.innerHTML = `
+                    <div style="position: absolute; top: 40px; left: 50%; transform: translateX(-50%); pointer-events: none; z-index: 2147483647;">
+                      <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.3); padding: 8px 16px; border-radius: 8px; backdrop-filter: blur(4px);">
+                        <svg style="width: 18px; height: 18px; color: rgb(74,222,128); filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5));" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M4.555 5.168A1 1 0 003 6v8a1 1 0 001.555.832l7-5a1 1 0 000-1.664l-7-5z"/>
+                          <path d="M13 5v10l4-5-4-5z"/>
+                        </svg>
+                        <span style="font-size: 16px; font-weight: 600; color: rgb(74,222,128); text-shadow: 0 1px 2px rgba(0,0,0,0.5);">已跳过广告</span>
+                      </div>
+                    </div>
+                  `;
                 }
+
+                // 清除之前的定时器
+                if (adSkipTimeoutRef.current) {
+                  clearTimeout(adSkipTimeoutRef.current);
+                }
+
+                // 2秒后自动隐藏
+                adSkipTimeoutRef.current = setTimeout(() => {
+                  setAdSkipStatus(null);
+                  const container = document.getElementById('speed-indicator-container');
+                  if (container && !isLongPressingRef.current) {
+                    container.innerHTML = '';
+                  }
+                }, 2000);
               }
               return;
             }
@@ -531,6 +714,18 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
 
     // 清理函数
     return () => {
+      // 清理长按定时器
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+
+      // 清理广告跳过定时器
+      if (adSkipTimeoutRef.current) {
+        clearTimeout(adSkipTimeoutRef.current);
+        adSkipTimeoutRef.current = null;
+      }
+
       if (plyrRef.current) {
         plyrRef.current.destroy();
         plyrRef.current = null;
@@ -554,7 +749,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
       adRangesRef.current = [];
       lastAutoSkipRef.current = { at: 0, target: 0 };
       lastToastRef.current = { detectAt: 0, skipAt: 0 };
-      
+
       // 清理保存进度的定时器
       if (saveProgressIntervalRef.current) {
         clearInterval(saveProgressIntervalRef.current);
@@ -659,6 +854,8 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
           playsInline
           crossOrigin="anonymous"
         ></video>
+
+
 
         {/* 加载状态 */}
         {isLoading && !error && (

@@ -18,8 +18,21 @@ export default function Player({ setToastMessage }) {
 
   useEffect(() => {
     // Stop players when entering/leaving
-    return () => stopAllPlayers();
+    return () => {
+      stopAllPlayers();
+      // Reset title when leaving
+      document.title = '极影 - 全网聚合搜索';
+    };
   }, []);
+
+  // Update page title when video or episode changes
+  useEffect(() => {
+    if (currentVideo && currentVideo.vod_name) {
+      const episodeName = parsedEpisodes[currentEpisodeIndex]?.name || '';
+      const episodeText = parsedEpisodes.length > 1 ? ` - ${episodeName}` : '';
+      document.title = `${currentVideo.vod_name}${episodeText} - 极影`;
+    }
+  }, [currentVideo, currentEpisodeIndex, parsedEpisodes]);
 
   useEffect(() => {
     // When URL params change, update video content

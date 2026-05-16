@@ -4,16 +4,20 @@
 
 **第一步：构建镜像**
 在项目根目录手动执行构建：
+
 ```bash
 docker build -t movie-app .
 ```
 
 **第二步：运行容器**
 使用 Docker Compose 启动：
+
 ```bash
 docker-compose up -d
 ```
+
 使用命令（可选配置 Redis）：
+
 ```bash
 docker run -d \
   -p 8686:3000 \
@@ -27,30 +31,31 @@ docker run -d \
 
 **第三步：Redis 配置说明（含 IPTV）**
 
-| 字段（Field）       | 类型（Type） | 说明 & 示例值                                                                 |
-|--------------------|--------------|-----------------------------------------------------------------------------|
-| `video:password`   | String       | 视频服务访问密码 示例：`66888`|
-| `video:source`     | String       | 视频源配置（JSON 格式），具体结构如下|
-| `video:iptv_cctv`  | String       | IPTV 定时任务生成的 CCTV 频道数据（苹果 CMS 风格 JSON）|
+| 字段（Field）     | 类型（Type） | 说明 & 示例值                                           |
+| ----------------- | ------------ | ------------------------------------------------------- |
+| `video:password`  | String       | 视频服务访问密码 示例：`66888`                          |
+| `video:source`    | String       | 视频源配置（JSON 格式），具体结构如下                   |
+| `video:iptv_cctv` | String       | IPTV 定时任务生成的 CCTV 频道数据（苹果 CMS 风格 JSON） |
 
 ```json
 [
-    {
-        "key": "ikunzy",
-        "name": "爱坤资源",
-        "url": "https://xxx.com/api.php/provide/vod/from/ikm3u8/at/json",
-        "desc": "较新资源站，带宽充足，画质较好（主打清晰度）。"
-    },
-    {
-        "key": "bdzy",
-        "name": "百度资源",
-        "url": "https://xxx.com/api.php/provide/vod/from/dbm3u8/at/json/",
-        "desc": "老牌劲旅，资源库庞大且稳定，覆盖老片较多。"
-    }
+  {
+    "key": "ikunzy",
+    "name": "爱坤资源",
+    "url": "https://xxx.com/api.php/provide/vod/from/ikm3u8/at/json",
+    "desc": "较新资源站，带宽充足，画质较好（主打清晰度）。"
+  },
+  {
+    "key": "bdzy",
+    "name": "百度资源",
+    "url": "https://xxx.com/api.php/provide/vod/from/dbm3u8/at/json/",
+    "desc": "老牌劲旅，资源库庞大且稳定，覆盖老片较多。"
+  }
 ]
-``` 
+```
 
 #### 配置说明补充
+
 1. `key`：视频源唯一标识；
 2. `name`：视频源名称；
 3. `url`：视频源接口地址（需确保可正常访问，返回标准 JSON 格式）；
@@ -113,6 +118,10 @@ docker run -d \
 
 # 更新日志
 
+- **v1.72**
+  - 添加长按加速功能
+  - 优化广告跳过提示样式
+
 - **v1.71**
   - 修复点击跳过广告按钮时导致画面中断
 
@@ -137,7 +146,6 @@ docker run -d \
 
 - **v1.51**
   - 点击视频时，若无播放地址（vod_play_url为空），显示提示并阻止进入播放页面
-  
 - **v1.5**
   - 优化重构整体逻辑
   - 不再强依赖 Redis，支持无 Redis 环境下正常运行（仅在提供 `REDIS_URL` 时启用 Redis 功能）

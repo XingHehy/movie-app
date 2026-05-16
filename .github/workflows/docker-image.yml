@@ -1,44 +1,49 @@
-name: Build and Deploy Frontend to Pages
+name: Build and Push to Docker Hub
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
+    paths-ignore:
+      - 'README.md'
+      - '*.md'
+      - 'docs/**'
   workflow_dispatch:
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: 拉取代码
         uses: actions/checkout@v4
 
-      # 使用你的 Dockerfile 构建并提取 dist 前端产物
-      - name: Build with Docker and extract dist
-        run: |
-          docker build -t myapp .
-          docker create --name temp myapp
-          docker cp temp:/app/dist ./dist
-          docker rm temp
-
-      # 上传前端静态文件
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      # 登录阿里云 ACR
+      - name: 登录阿里云 ACR
+        uses: docker/login-action@v3
         with:
-          path: ./dist
+          registry: registry.cn-hangzhou.aliyuncs.com
+          username: ${{ secrets.Ali_DOCKER_USERNAME }}
+          password: ${{ secrets.Ali_DOCKER_TOKEN }}
 
-  # 部署到 GitHub Pages
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      # 登录 Docker Hub
+      - name: 登录 Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      # 生成 年月日-时分秒 版本号
+      - name: 生成版本标签
+        id: vars
+        run: echo "tag=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+
+      # 构建 + 同时推送到两个平台
+      - name: 构建并推送镜像
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            registry.cn-hangzhou.aliyuncs.com/xinghehy/movie-app:${{ steps.vars.outputs.tag }}
+            registry.cn-hangzhou.aliyuncs.com/xinghehy/movie-app:latest
+            xinghehy/movie-app:${{ steps.vars.outputs.tag }}
+            xinghehy/movie-app:latest
