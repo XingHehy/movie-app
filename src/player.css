@@ -56,8 +56,9 @@
 }
 
 .plyr__volume {
-    width: 80px;
-    margin-right: 10px;
+    width: 32px;
+    min-width: 32px;
+    margin-right: 6px;
 }
 
 /* Plyr视频容器 */
@@ -101,6 +102,153 @@
 .player-shell .plyr__controls {
     position: relative;
     z-index: 10;
+}
+
+.player-shell .episode-skip-control {
+    flex-shrink: 0;
+}
+
+.player-shell .episode-skip-control__icon {
+    display: block;
+    width: 18px;
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
+}
+
+.player-shell .episode-skip-control:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+}
+
+.player-shell .plyr__volume--vertical {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    overflow: visible;
+}
+
+.player-shell .plyr__volume--vertical .plyr__volume-value,
+.player-shell .plyr__volume--vertical input[type="range"],
+.player-shell .plyr__volume--vertical .plyr__volume-hitbox {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.player-shell .plyr__volume--vertical:focus-within .plyr__volume-value,
+.player-shell .plyr__volume--vertical.is-volume-open .plyr__volume-value,
+.player-shell .plyr__volume--vertical:focus-within input[type="range"],
+.player-shell .plyr__volume--vertical.is-volume-open input[type="range"],
+.player-shell .plyr__volume--vertical:focus-within .plyr__volume-hitbox,
+.player-shell .plyr__volume--vertical.is-volume-open .plyr__volume-hitbox {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(-50%, 0);
+}
+
+.player-shell .plyr__volume--vertical::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 34px;
+    width: 48px;
+    height: 134px;
+    transform: translateX(-50%);
+    border-radius: 8px;
+    background: var(--plyr-menu-background, #ffffffe6);
+    box-shadow: 0 16px 34px rgba(0, 0, 0, 0.35);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.16s ease;
+}
+
+.player-shell .plyr__volume--vertical:focus-within::before,
+.player-shell .plyr__volume--vertical.is-volume-open::before {
+    opacity: 1;
+}
+
+.player-shell .plyr__volume--vertical .plyr__volume-value {
+    position: absolute;
+    left: 50%;
+    bottom: 46px;
+    z-index: 9;
+    min-width: 32px;
+    transform: translate(-50%, 6px);
+    color: var(--plyr-menu-color, #4a5464);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    padding: 2px 3px;
+    cursor: pointer;
+}
+
+.player-shell .plyr__volume--vertical .plyr__volume-value:hover,
+.player-shell .plyr__volume--vertical .plyr__volume-value:focus-visible {
+    background: rgba(0, 0, 0, 0.08);
+    outline: none;
+}
+
+.player-shell .plyr__volume--vertical input[type="range"] {
+    position: absolute;
+    left: 50%;
+    bottom: 110px;
+    z-index: 3;
+    width: 88px;
+    height: 4px;
+    margin: 0;
+    transform: translate(-50%, 6px) rotate(-90deg);
+    transform-origin: 50% 50%;
+    pointer-events: none;
+}
+
+.player-shell .plyr__volume--vertical input[type="range"]::-webkit-slider-runnable-track {
+    background-color: #0000001a !important;
+    background-image: linear-gradient(to right, currentColor var(--value, 0), #0000001a var(--value, 0)) !important;
+}
+
+.player-shell .plyr__volume--vertical input[type="range"]::-moz-range-track {
+    background-color: #0000001a !important;
+}
+
+.player-shell .plyr__volume--vertical input[type="range"]::-ms-track {
+    background-color: #0000001a !important;
+}
+
+.player-shell .plyr--full-ui.plyr--video .plyr__volume--vertical input[type="range"]::-webkit-slider-runnable-track {
+    background-color: #0000001a !important;
+    background-image: linear-gradient(to right, currentColor var(--value, 0), #0000001a var(--value, 0)) !important;
+}
+
+.player-shell .plyr--full-ui.plyr--video .plyr__volume--vertical input[type="range"]::-moz-range-track {
+    background-color: #0000001a !important;
+}
+
+.player-shell .plyr__volume--vertical .plyr__volume-hitbox {
+    position: absolute;
+    left: 50%;
+    bottom: 54px;
+    z-index: 5;
+    width: 42px;
+    height: 88px;
+    transform: translate(-50%, 6px);
+    cursor: pointer;
+}
+
+.player-shell .plyr__volume--vertical:focus-within input[type="range"],
+.player-shell .plyr__volume--vertical.is-volume-open input[type="range"] {
+    transform: translate(-50%, 0) rotate(-90deg);
+}
+
+.player-shell .plyr__volume--vertical .plyr__control {
+    position: relative;
+    z-index: 4;
+    flex-shrink: 0;
 }
 
 .player-shell .plyr__menu__container {

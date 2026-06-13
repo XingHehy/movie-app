@@ -77,15 +77,25 @@ export const updateWatchHistory = (videoInfo) => {
       item => item.vod_id === videoInfo.vod_id && item.sourceKey === videoInfo.sourceKey
     );
     
+    const existingItem = existingIndex >= 0 ? history[existingIndex] : null;
+    const nextEpisodeIndex = videoInfo.episodeIndex || 0;
+    const isSameEpisode = existingItem && (existingItem.episodeIndex || 0) === nextEpisodeIndex;
+    const nextCurrentTime = videoInfo.currentTime > 0
+      ? videoInfo.currentTime
+      : (isSameEpisode ? (existingItem.currentTime || 0) : 0);
+    const nextDuration = videoInfo.duration > 0
+      ? videoInfo.duration
+      : (isSameEpisode ? (existingItem.duration || 0) : 0);
+
     const historyItem = {
       vod_id: videoInfo.vod_id,
       sourceKey: videoInfo.sourceKey || '',
       vod_name: videoInfo.vod_name,
       vod_pic: videoInfo.vod_pic || '',
-      episodeIndex: videoInfo.episodeIndex || 0,
+      episodeIndex: nextEpisodeIndex,
       episodeName: videoInfo.episodeName || '',
-      currentTime: videoInfo.currentTime || 0,
-      duration: videoInfo.duration || 0,
+      currentTime: nextCurrentTime,
+      duration: nextDuration,
       updatedAt: Date.now()
     };
     

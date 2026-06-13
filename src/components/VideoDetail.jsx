@@ -18,7 +18,9 @@ const VideoDetail = ({
   const [recommendTab, setRecommendTab] = useState(0);
   const tabScrollRef = useRef(null);
   const previousEpisodeIndexRef = useRef(currentEpisodeIndex);
+  const manualEpisodeSwitchRef = useRef(false);
   const shouldResumeRef = useRef(resumeTime > 0);
+  const [shouldResume, setShouldResume] = useState(resumeTime > 0);
   const [playerReloadKey, setPlayerReloadKey] = useState(0); // 用于强制重新加载播放器
 
   // 过滤出有视频的推荐源
@@ -26,17 +28,21 @@ const VideoDetail = ({
 
   // 检查是否是切换集数（如果是切换集数，不恢复播放进度）
   useEffect(() => {
-    if (previousEpisodeIndexRef.current !== currentEpisodeIndex && previousEpisodeIndexRef.current !== undefined) {
+    if (previousEpisodeIndexRef.current !== currentEpisodeIndex && manualEpisodeSwitchRef.current) {
       // 集数已切换，不恢复播放进度
       shouldResumeRef.current = false;
+      setShouldResume(false);
+      manualEpisodeSwitchRef.current = false;
       previousEpisodeIndexRef.current = currentEpisodeIndex;
     } else {
       // 首次加载或同一集数
       if (resumeTime > 0) {
         shouldResumeRef.current = true;
+        setShouldResume(true);
         console.log('✅ 设置续播标志，resumeTime:', resumeTime);
       } else {
         shouldResumeRef.current = false;
+        setShouldResume(false);
       }
       previousEpisodeIndexRef.current = currentEpisodeIndex;
     }
@@ -52,13 +58,20 @@ const VideoDetail = ({
       });
     }
   };
+  const handleEpisodeChange = (index) => {
+    if (index < 0 || index >= parsedEpisodes.length || index === currentEpisodeIndex) return;
+    manualEpisodeSwitchRef.current = true;
+    shouldResumeRef.current = false;
+    setShouldResume(false);
+    setCurrentEpisodeIndex(index);
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-fade-in">
       {/* 左侧：播放器和简介 */}
       <div className="lg:col-span-2 space-y-6">
         <VideoPlayer
-          key={`${currentVideo.uniqueId || currentVideo.vod_id}-${currentEpisodeIndex}-${shouldResumeRef.current ? 'resume' : 'new'}-${playerReloadKey}`}
+          key={`${currentVideo.uniqueId || currentVideo.vod_id}-${playerReloadKey}`}
           src={parsedEpisodes[currentEpisodeIndex]?.url}
           poster={currentVideo.vod_pic}
           title={`${currentVideo.vod_name} ${parsedEpisodes[currentEpisodeIndex]?.name}`}
@@ -68,8 +81,9 @@ const VideoDetail = ({
           currentVideo={currentVideo}
           currentEpisodeIndex={currentEpisodeIndex}
           parsedEpisodes={parsedEpisodes}
-          resumeTime={shouldResumeRef.current ? resumeTime : 0}
+          resumeTime={shouldResume ? resumeTime : 0}
           setToastMessage={setToastMessage}
+          onEpisodeChange={handleEpisodeChange}
         />
 
         {/* 剧情简介 */}
@@ -140,17 +154,17 @@ const VideoDetail = ({
                       key={i}
                       onClick={() => {
                         const isSameEpisode = i === currentEpisodeIndex;
+                        manualEpisodeSwitchRef.current = true;
                         if (isSameEpisode) {
                           // 点击同一集时，先停止播放器，然后强制重新加载
                           stopAllPlayers();
                           shouldResumeRef.current = false;
+                          setShouldResume(false);
                           // 使用 state 更新来触发重新渲染
                           setPlayerReloadKey(prev => prev + 1);
                         } else {
                           // 不同集时，正常切换
-                          setCurrentEpisodeIndex(i);
-                          stopAllPlayers();
-                          shouldResumeRef.current = false;
+                          handleEpisodeChange(i);
                         }
                       }}
                       className={`

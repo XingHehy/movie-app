@@ -38,7 +38,7 @@ const formatSecondsToHMS = (totalSeconds) => {
   return `${pad2(h)}:${pad2(m)}:${pad2(whole)}${msPart}`;
 };
 
-const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, currentVideo, currentEpisodeIndex, parsedEpisodes, resumeTime, setToastMessage }) => {
+const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, currentVideo, currentEpisodeIndex, parsedEpisodes, resumeTime, setToastMessage, onEpisodeChange }) => {
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [autoSkipAdsEnabled, setAutoSkipAdsEnabled] = useState(() => loadAutoSkipAdsFromStorage());
@@ -51,6 +51,8 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
   const hlsRef = useRef(null);
   const plyrRef = useRef(null);
   const isInitialized = useRef(false);
+  const currentSrcRef = useRef(null);
+  const playbackMetaRef = useRef({ currentVideo, currentEpisodeIndex, parsedEpisodes });
   const [retryKey, setRetryKey] = useState(0);
   const playerId = useRef(Date.now() + Math.random().toString(36).substring(2, 10)); // 生成唯一ID
   const saveProgressIntervalRef = useRef(null);
@@ -64,6 +66,42 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
   const [showSpeedIndicator, setShowSpeedIndicator] = useState(false);
   const [adSkipStatus, setAdSkipStatus] = useState(null); // null | 'preparing' | 'skipped'
   const adSkipTimeoutRef = useRef(null);
+  const sourceLoadTimeoutRef = useRef(null);
+  const topOverlayTimeoutRef = useRef(null);
+  const gestureRef = useRef(null);
+  const playerReadyCleanupRef = useRef(null);
+  const lastNonZeroVolumeRef = useRef(1);
+  const episodeNavRef = useRef({ currentEpisodeIndex, parsedEpisodes, onEpisodeChange });
+  playbackMetaRef.current = { currentVideo, currentEpisodeIndex, parsedEpisodes };
+  episodeNavRef.current = { currentEpisodeIndex, parsedEpisodes, onEpisodeChange };
+  const hasPreviousEpisode = currentEpisodeIndex > 0;
+  const hasNextEpisode = currentEpisodeIndex < (parsedEpisodes?.length || 0) - 1;
+  const showTopOverlayMessage = (message) => {
+    const container = document.getElementById('speed-indicator-container');
+    if (!container) return;
+    if (topOverlayTimeoutRef.current) {
+      clearTimeout(topOverlayTimeoutRef.current);
+      topOverlayTimeoutRef.current = null;
+    }
+    container.innerHTML = `
+      <div style="position: absolute; top: 40px; left: 50%; transform: translateX(-50%); pointer-events: none; z-index: 2147483647;">
+        <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.3); padding: 8px 16px; border-radius: 8px; backdrop-filter: blur(4px);">
+          <span style="font-size: 16px; font-weight: 600; color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${message}</span>
+        </div>
+      </div>
+    `;
+    topOverlayTimeoutRef.current = setTimeout(() => {
+      container.innerHTML = '';
+      topOverlayTimeoutRef.current = null;
+    }, 1600);
+  };
+  const handleEpisodeSwitch = (direction) => {
+    const { currentEpisodeIndex: index, parsedEpisodes: episodes, onEpisodeChange: changeEpisode } = episodeNavRef.current;
+    const nextIndex = index + direction;
+    if (!changeEpisode || nextIndex < 0 || nextIndex >= (episodes?.length || 0)) return;
+    showTopOverlayMessage(`播放：${episodes?.[nextIndex]?.name || `第 ${nextIndex + 1} 集`}`);
+    changeEpisode(nextIndex);
+  };
 
   const detectAdRangesFromLevel = (details, playlistUrl) => {
     const fragments = details?.fragments || [];
@@ -160,6 +198,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
 
     // 标记为已初始化
     isInitialized.current = true;
+    currentSrcRef.current = src;
 
     const initPlayer = async () => {
       try {
@@ -363,6 +402,170 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
           plyrElement.appendChild(indicatorContainer);
         }
 
+        const canUseOrientationLock = () => (
+          typeof window !== 'undefined' &&
+          navigator.maxTouchPoints > 0 &&
+          window.screen?.orientation?.lock
+        );
+        const lockLandscape = async () => {
+          if (!canUseOrientationLock()) return;
+          try {
+            await window.screen.orientation.lock('landscape');
+          } catch (err) {
+            console.warn('横屏锁定失败，浏览器可能不支持:', err);
+          }
+        };
+        const unlockOrientation = () => {
+          if (!window.screen?.orientation?.unlock) return;
+          try {
+            window.screen.orientation.unlock();
+          } catch (err) {
+            console.warn('解除横屏锁定失败:', err);
+          }
+        };
+        const isFullscreenActive = () => (
+          document.fullscreenElement ||
+          document.webkitFullscreenElement ||
+          plyr.fullscreen.active
+        );
+        const handleFullscreenOrientation = () => {
+          setTimeout(() => {
+            if (isFullscreenActive()) {
+              lockLandscape();
+            } else {
+              unlockOrientation();
+            }
+          }, 0);
+        };
+        document.addEventListener('fullscreenchange', handleFullscreenOrientation);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenOrientation);
+        video.addEventListener('webkitbeginfullscreen', lockLandscape);
+        video.addEventListener('webkitendfullscreen', unlockOrientation);
+        plyr.on('enterfullscreen', lockLandscape);
+        plyr.on('exitfullscreen', unlockOrientation);
+
+        let previousEpisodeBtn = null;
+        let nextEpisodeBtn = null;
+        const controlsElement = playerContainerRef.current?.querySelector('.plyr__controls');
+        const playButton = controlsElement?.querySelector('button[data-plyr="play"]');
+        const createEpisodeButton = (direction) => {
+          const button = document.createElement('button');
+          const isPrevious = direction < 0;
+          button.type = 'button';
+          button.className = 'plyr__control episode-skip-control';
+          button.dataset.episodeDirection = isPrevious ? 'previous' : 'next';
+          button.setAttribute('aria-label', isPrevious ? '上一集' : '下一集');
+          button.setAttribute('title', isPrevious ? '上一集' : '下一集');
+          button.disabled = isPrevious ? !hasPreviousEpisode : !hasNextEpisode;
+          button.innerHTML = isPrevious
+            ? '<span class="episode-skip-control__icon">‹</span>'
+            : '<span class="episode-skip-control__icon">›</span>';
+          button.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            handleEpisodeSwitch(direction);
+          });
+          return button;
+        };
+
+        if (controlsElement && playButton && parsedEpisodes?.length > 1) {
+          previousEpisodeBtn = createEpisodeButton(-1);
+          nextEpisodeBtn = createEpisodeButton(1);
+          controlsElement.insertBefore(previousEpisodeBtn, playButton);
+          playButton.insertAdjacentElement('afterend', nextEpisodeBtn);
+        }
+
+        const volumeElement = controlsElement?.querySelector('.plyr__volume');
+        const volumeInput = volumeElement?.querySelector('input[type="range"]');
+        const muteButton = volumeElement?.querySelector('button[data-plyr="mute"]');
+        let volumeValueEl = null;
+        let volumeHitboxEl = null;
+        const updateVolumeValue = () => {
+          if (!volumeValueEl) return;
+          if (!plyr.muted && plyr.volume > 0) {
+            lastNonZeroVolumeRef.current = plyr.volume;
+          }
+          volumeValueEl.textContent = String(Math.round((plyr.muted ? 0 : plyr.volume) * 100));
+        };
+        const toggleVolumePanel = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          volumeElement?.classList.toggle('is-volume-open');
+        };
+        const closeVolumePanelOnOutsideClick = (event) => {
+          if (!volumeElement?.contains(event.target)) {
+            volumeElement?.classList.remove('is-volume-open');
+          }
+        };
+        const closeVolumePanel = () => {
+          volumeElement?.classList.remove('is-volume-open');
+        };
+        const toggleMuteFromVolumeValue = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (plyr.muted || plyr.volume === 0) {
+            const restoredVolume = lastNonZeroVolumeRef.current || 0.8;
+            plyr.volume = restoredVolume;
+            plyr.muted = false;
+            video.volume = restoredVolume;
+            video.muted = false;
+            if (volumeInput) volumeInput.value = String(restoredVolume);
+          } else {
+            lastNonZeroVolumeRef.current = plyr.volume || lastNonZeroVolumeRef.current;
+            plyr.volume = 0;
+            plyr.muted = true;
+            video.volume = 0;
+            video.muted = true;
+            if (volumeInput) volumeInput.value = '0';
+          }
+          updateVolumeValue();
+        };
+        const setVolumeFromVerticalPointer = (event) => {
+          if (!volumeInput || !volumeHitboxEl) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const rect = volumeHitboxEl.getBoundingClientRect();
+          const ratio = clamp((rect.bottom - event.clientY) / rect.height, 0, 1);
+          plyr.volume = ratio;
+          plyr.muted = ratio === 0;
+          video.volume = ratio;
+          video.muted = ratio === 0;
+          volumeInput.value = String(ratio);
+          updateVolumeValue();
+        };
+        const startVolumePointer = (event) => {
+          setVolumeFromVerticalPointer(event);
+          const handlePointerMove = (moveEvent) => setVolumeFromVerticalPointer(moveEvent);
+          const handlePointerUp = () => {
+            document.removeEventListener('pointermove', handlePointerMove);
+            document.removeEventListener('pointerup', handlePointerUp);
+          };
+          document.addEventListener('pointermove', handlePointerMove);
+          document.addEventListener('pointerup', handlePointerUp);
+        };
+
+        if (volumeElement && volumeInput && muteButton) {
+          volumeElement.classList.add('plyr__volume--vertical');
+          volumeInput.setAttribute('step', '0.01');
+          volumeValueEl = document.createElement('button');
+          volumeValueEl.type = 'button';
+          volumeValueEl.className = 'plyr__volume-value';
+          volumeValueEl.setAttribute('aria-label', '静音 / 恢复音量');
+          volumeValueEl.setAttribute('title', '静音 / 恢复音量');
+          volumeHitboxEl = document.createElement('span');
+          volumeHitboxEl.className = 'plyr__volume-hitbox';
+          volumeElement.insertBefore(volumeHitboxEl, volumeInput);
+          volumeElement.insertBefore(volumeValueEl, volumeInput);
+          updateVolumeValue();
+          volumeValueEl.addEventListener('click', toggleMuteFromVolumeValue);
+          volumeInput.addEventListener('input', updateVolumeValue);
+          volumeHitboxEl.addEventListener('pointerdown', startVolumePointer);
+          plyr.on('volumechange', updateVolumeValue);
+          plyr.on('controlshidden', closeVolumePanel);
+          muteButton.addEventListener('click', toggleVolumePanel, true);
+          document.addEventListener('pointerdown', closeVolumePanelOnOutsideClick, true);
+        }
+
         // 拦截全屏按钮点击事件，优先使用 iOS 原生全屏
         // 使用 capture 阶段捕获事件，并在检测到 iPad/iOS 时阻止 Plyr 的默认行为
         const fullscreenBtn = playerContainerRef.current?.querySelector('button[data-plyr="fullscreen"]');
@@ -415,6 +618,109 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
         }
 
         // 添加移动端长按加速功能
+        const indicatorContainerId = 'speed-indicator-container';
+        const getIndicatorContainer = () => document.getElementById(indicatorContainerId);
+        const clearGestureIndicator = () => {
+          const container = getIndicatorContainer();
+          if (container && !isLongPressingRef.current) {
+            container.innerHTML = '';
+          }
+        };
+        const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+        const formatGestureTime = (seconds) => {
+          if (!Number.isFinite(seconds)) return '00:00';
+          const safeSeconds = Math.max(0, Math.floor(seconds));
+          const hours = Math.floor(safeSeconds / 3600);
+          const minutes = Math.floor((safeSeconds % 3600) / 60);
+          const secs = safeSeconds % 60;
+          if (hours > 0) {
+            return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+          }
+          return `${minutes}:${String(secs).padStart(2, '0')}`;
+        };
+        const renderGestureIndicator = ({ type, deltaSeconds = 0, targetTime = 0, volume = 0 }) => {
+          const container = getIndicatorContainer();
+          if (!container) return;
+
+          const isSeek = type === 'seek';
+          const direction = deltaSeconds >= 0 ? '快进' : '后退';
+          const arrow = deltaSeconds >= 0 ? '>>' : '<<';
+          const percent = Math.round(clamp(volume, 0, 1) * 100);
+          const label = isSeek
+            ? `${arrow} ${direction} ${Math.abs(Math.round(deltaSeconds))} 秒`
+            : `音量 ${percent}%`;
+          const detail = isSeek ? formatGestureTime(targetTime) : '';
+          const barPercent = isSeek
+            ? clamp((Math.abs(deltaSeconds) / 120) * 100, 8, 100)
+            : percent;
+
+          container.innerHTML = `
+            <div class="gesture-indicator gesture-indicator--${type}">
+              <div class="gesture-indicator__label">${label}</div>
+              <div class="gesture-indicator__detail">${detail}</div>
+              <div class="gesture-indicator__track">
+                <div class="gesture-indicator__fill" style="width: ${barPercent}%"></div>
+              </div>
+            </div>
+          `;
+        };
+        const getSeekSensitivity = () => {
+          const duration = Number.isFinite(video.duration) ? video.duration : 0;
+          return clamp(duration / 12000, 0.06, 0.45);
+        };
+        const renderGestureOverlay = ({ type, deltaSeconds = 0, targetTime = 0, volume = 0 }) => {
+          const container = getIndicatorContainer();
+          if (!container) return;
+
+          const isSeek = type === 'seek';
+          const direction = deltaSeconds >= 0 ? '快进' : '后退';
+          const arrow = deltaSeconds >= 0 ? '>>' : '<<';
+          const percent = Math.round(clamp(volume, 0, 1) * 100);
+          const label = isSeek
+            ? `${arrow} ${direction} ${Math.abs(Math.round(deltaSeconds))} 秒`
+            : `音量 ${percent}%`;
+          const detail = isSeek ? formatGestureTime(targetTime) : '';
+
+          container.innerHTML = `
+            <div style="position: absolute; top: 40px; left: 50%; transform: translateX(-50%); pointer-events: none; z-index: 2147483647;">
+              <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.3); padding: 8px 16px; border-radius: 8px; backdrop-filter: blur(4px);">
+                <span style="font-size: 16px; font-weight: 600; color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${label}</span>
+                ${detail ? `<span style="font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.78); text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${detail}</span>` : ''}
+              </div>
+            </div>
+          `;
+        };
+        const getPointFromEvent = (e) => {
+          const point = e.touches?.[0] || e.changedTouches?.[0] || e;
+          return { x: point.clientX, y: point.clientY };
+        };
+        const stopLongPress = () => {
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+          }
+        };
+        const finishLongPress = () => {
+          stopLongPress();
+
+          if (isLongPressingRef.current && video && plyr) {
+            console.log('鈴癸笍 闀挎寜缁撴潫锛屾仮澶嶉€熷害');
+            plyr.speed = originalSpeedRef.current;
+            isLongPressingRef.current = false;
+
+            setShowSpeedIndicator(() => {
+              console.log('鉂?闅愯棌鍔犻€熸寚绀哄櫒');
+
+              const container = getIndicatorContainer();
+              if (container) {
+                container.innerHTML = '';
+              }
+
+              return false;
+            });
+          }
+        };
+
         const handleLongPressStart = (e) => {
           // 防止在控制栏上触发
           if (e.target.closest('.plyr__controls')) {
@@ -422,9 +728,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
           }
 
           // 清除之前的定时器
-          if (longPressTimerRef.current) {
-            clearTimeout(longPressTimerRef.current);
-          }
+          stopLongPress();
 
           // 500ms后触发长按加速
           longPressTimerRef.current = setTimeout(() => {
@@ -440,7 +744,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
                 console.log('✅ 显示加速指示器, 全屏状态:', isFullscreen);
 
                 // 直接操作DOM显示指示器
-                const container = document.getElementById('speed-indicator-container');
+                const container = getIndicatorContainer();
                 if (container) {
                   container.innerHTML = `
                     <div style="position: absolute; top: 40px; left: 50%; transform: translateX(-50%); pointer-events: none; z-index: 2147483647;">
@@ -500,15 +804,120 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
         };
 
         // 直接在video元素上监听事件，确保全屏时也能工作
-        video.addEventListener('touchstart', handleLongPressStart, { passive: true });
-        video.addEventListener('touchend', handleLongPressEnd, { passive: true });
-        video.addEventListener('touchcancel', handleLongPressEnd, { passive: true });
-        video.addEventListener('touchmove', handleLongPressEnd, { passive: true });
+        const startGesture = (e) => {
+          if (e.target.closest('.plyr__controls')) return;
+          const point = getPointFromEvent(e);
+          gestureRef.current = {
+            startX: point.x,
+            startY: point.y,
+            lastX: point.x,
+            lastY: point.y,
+            mode: null,
+            startTime: video.currentTime || 0,
+            targetTime: video.currentTime || 0,
+            startVolume: plyr.volume ?? video.volume ?? 1,
+            active: true,
+            moved: false
+          };
+          handleLongPressStart(e);
+        };
+
+        const moveGesture = (e) => {
+          const gesture = gestureRef.current;
+          if (!gesture?.active) return;
+          const point = getPointFromEvent(e);
+          const dx = point.x - gesture.startX;
+          const dy = point.y - gesture.startY;
+          const absX = Math.abs(dx);
+          const absY = Math.abs(dy);
+
+          if (!gesture.mode && Math.max(absX, absY) > 12) {
+            gesture.mode = absX >= absY ? 'seek' : 'volume';
+            gesture.moved = true;
+            finishLongPress();
+          }
+
+          if (!gesture.mode) return;
+          if (e.cancelable) e.preventDefault();
+          e.stopPropagation();
+
+          if (gesture.mode === 'seek') {
+            const duration = Number.isFinite(video.duration) ? video.duration : 0;
+            if (duration <= 0) return;
+            const stepSeconds = (point.x - gesture.lastX) * getSeekSensitivity();
+            const targetTime = clamp((gesture.targetTime ?? gesture.startTime) + stepSeconds, 0, Math.max(duration - 0.1, 0));
+            const deltaSeconds = targetTime - gesture.startTime;
+            gesture.targetTime = targetTime;
+            renderGestureOverlay({ type: 'seek', deltaSeconds, targetTime });
+            gesture.lastX = point.x;
+            return;
+          }
+
+          const volumeDelta = -dy / 220;
+          const nextVolume = clamp(gesture.startVolume + volumeDelta, 0, 1);
+          plyr.volume = nextVolume;
+          video.volume = nextVolume;
+          video.muted = nextVolume === 0;
+          plyr.muted = nextVolume === 0;
+          renderGestureOverlay({ type: 'volume', volume: nextVolume });
+          gesture.lastX = point.x;
+          gesture.lastY = point.y;
+        };
+
+        const endGesture = () => {
+          const gesture = gestureRef.current;
+          finishLongPress();
+
+          if (gesture?.active && gesture.mode === 'seek') {
+            video.currentTime = gesture.targetTime;
+            plyr.currentTime = gesture.targetTime;
+          }
+
+          gestureRef.current = null;
+          if (gesture?.mode) {
+            setTimeout(clearGestureIndicator, 650);
+          }
+        };
+
+        video.addEventListener('touchstart', startGesture, { passive: true });
+        video.addEventListener('touchmove', moveGesture, { passive: false });
+        video.addEventListener('touchend', endGesture, { passive: true });
+        video.addEventListener('touchcancel', endGesture, { passive: true });
 
         // 监听鼠标事件（桌面端也支持）
-        video.addEventListener('mousedown', handleLongPressStart);
-        video.addEventListener('mouseup', handleLongPressEnd);
-        video.addEventListener('mouseleave', handleLongPressEnd);
+        video.addEventListener('mousedown', startGesture);
+        video.addEventListener('mousemove', moveGesture);
+        video.addEventListener('mouseup', endGesture);
+        video.addEventListener('mouseleave', endGesture);
+
+        playerReadyCleanupRef.current = () => {
+          document.removeEventListener('fullscreenchange', handleFullscreenOrientation);
+          document.removeEventListener('webkitfullscreenchange', handleFullscreenOrientation);
+          video.removeEventListener('webkitbeginfullscreen', lockLandscape);
+          video.removeEventListener('webkitendfullscreen', unlockOrientation);
+          plyr.off?.('enterfullscreen', lockLandscape);
+          plyr.off?.('exitfullscreen', unlockOrientation);
+          unlockOrientation();
+          previousEpisodeBtn?.remove();
+          nextEpisodeBtn?.remove();
+          volumeInput?.removeEventListener('input', updateVolumeValue);
+          volumeHitboxEl?.removeEventListener('pointerdown', startVolumePointer);
+          muteButton?.removeEventListener('click', toggleVolumePanel, true);
+          document.removeEventListener('pointerdown', closeVolumePanelOnOutsideClick, true);
+          plyr.off?.('volumechange', updateVolumeValue);
+          plyr.off?.('controlshidden', closeVolumePanel);
+          volumeValueEl?.removeEventListener('click', toggleMuteFromVolumeValue);
+          volumeValueEl?.remove();
+          volumeHitboxEl?.remove();
+          video.removeEventListener('touchstart', startGesture);
+          video.removeEventListener('touchmove', moveGesture);
+          video.removeEventListener('touchend', endGesture);
+          video.removeEventListener('touchcancel', endGesture);
+          video.removeEventListener('mousedown', startGesture);
+          video.removeEventListener('mousemove', moveGesture);
+          video.removeEventListener('mouseup', endGesture);
+          video.removeEventListener('mouseleave', endGesture);
+        };
       });
 
       plyr.on('canplay', () => {
@@ -546,9 +955,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
       const handleTimeUpdate = () => {
         // 使用最新的 ref 值，避免闭包问题
         const video = videoRef.current;
-        const currentVideoData = currentVideo;
-        const currentIndex = currentEpisodeIndex;
-        const episodes = parsedEpisodes;
+        const { currentVideo: currentVideoData, currentEpisodeIndex: currentIndex, parsedEpisodes: episodes } = playbackMetaRef.current;
         
         if (!currentVideoData || !video) return;
         const currentTime = video.currentTime || 0;
@@ -726,6 +1133,22 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
         adSkipTimeoutRef.current = null;
       }
 
+      if (sourceLoadTimeoutRef.current) {
+        clearTimeout(sourceLoadTimeoutRef.current);
+        sourceLoadTimeoutRef.current = null;
+      }
+
+      if (topOverlayTimeoutRef.current) {
+        clearTimeout(topOverlayTimeoutRef.current);
+        topOverlayTimeoutRef.current = null;
+      }
+
+      if (playerReadyCleanupRef.current) {
+        playerReadyCleanupRef.current();
+        playerReadyCleanupRef.current = null;
+      }
+      gestureRef.current = null;
+
       if (plyrRef.current) {
         plyrRef.current.destroy();
         plyrRef.current = null;
@@ -756,7 +1179,107 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
         saveProgressIntervalRef.current = null;
       }
     };
-  }, [src, poster, retryKey, resumeTime, currentVideo, currentEpisodeIndex, parsedEpisodes]);
+  }, [retryKey]);
+
+  useEffect(() => {
+    const switchSource = async () => {
+      const video = videoRef.current;
+      if (!src || !video || !isInitialized.current || currentSrcRef.current === src) return;
+      if (sourceLoadTimeoutRef.current) {
+        clearTimeout(sourceLoadTimeoutRef.current);
+        sourceLoadTimeoutRef.current = null;
+      }
+
+      setError(null);
+      setIsLoading(true);
+      hasRestoredTimeRef.current = false;
+      adRangesRef.current = [];
+      lastAutoSkipRef.current = { at: 0, target: 0 };
+      lastToastRef.current = { detectAt: 0, skipAt: 0 };
+
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+        hlsInstances.delete(playerId.current);
+      }
+
+      try {
+        video.pause();
+        video.style.opacity = '0';
+        video.removeAttribute('src');
+        video.load();
+
+        if (src.includes('.m3u8')) {
+          const HlsModule = await import('hls.js');
+          const Hls = HlsModule.default;
+
+          if (Hls.isSupported()) {
+            const hls = new Hls({
+              maxBufferLength: 30,
+              maxMaxBufferLength: 60,
+              startLevel: -1,
+              enableWorker: true,
+              lowLatencyMode: false,
+              debug: false
+            });
+
+            hlsRef.current = hls;
+            hlsInstances.set(playerId.current, hls);
+            hls.loadSource(src);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+              plyrRef.current?.play().catch(() => setIsLoading(false));
+            });
+            hls.on(Hls.Events.LEVEL_LOADED, (event, data) => {
+              const details = data?.details || hls.levels?.[hls.currentLevel]?.details;
+              const levelUrl = data?.levelInfo?.url?.[0] || data?.url || src;
+              adRangesRef.current = detectAdRangesFromLevel(details, levelUrl);
+            });
+          } else {
+            video.src = src;
+            video.load();
+          }
+        } else {
+          video.src = src;
+          video.load();
+        }
+
+        const handleCanPlay = () => {
+          if (sourceLoadTimeoutRef.current) {
+            clearTimeout(sourceLoadTimeoutRef.current);
+            sourceLoadTimeoutRef.current = null;
+          }
+          video.style.opacity = '';
+          setIsLoading(false);
+          plyrRef.current?.play().catch(() => setIsLoading(false));
+        };
+        video.addEventListener('canplay', handleCanPlay, { once: true });
+        sourceLoadTimeoutRef.current = setTimeout(() => {
+          video.style.opacity = '';
+          setError('播放加载超时，请尝试切换源');
+          setIsLoading(false);
+          sourceLoadTimeoutRef.current = null;
+        }, 20000);
+        currentSrcRef.current = src;
+      } catch (err) {
+        console.error('切换播放源失败:', err);
+        video.style.opacity = '';
+        setError('播放出错，请尝试切换源');
+        setIsLoading(false);
+      }
+    };
+
+    switchSource();
+  }, [src]);
+
+  useEffect(() => {
+    const root = playerContainerRef.current;
+    if (!root) return;
+    const previousButton = root.querySelector('[data-episode-direction="previous"]');
+    const nextButton = root.querySelector('[data-episode-direction="next"]');
+    if (previousButton) previousButton.disabled = !hasPreviousEpisode;
+    if (nextButton) nextButton.disabled = !hasNextEpisode;
+  }, [hasPreviousEpisode, hasNextEpisode]);
 
   // 当 resumeTime 变化时，重置恢复标志，以便新的 resumeTime 能够生效
   useEffect(() => {
@@ -855,11 +1378,46 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
           crossOrigin="anonymous"
         ></video>
 
+        {false && !error && parsedEpisodes?.length > 1 && (
+          <div className="absolute inset-0 z-[15] pointer-events-none flex items-center justify-center gap-24 sm:gap-36 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-200">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleEpisodeSwitch(-1);
+              }}
+              disabled={!hasPreviousEpisode}
+              className="pointer-events-auto flex items-center gap-1.5 rounded-lg bg-black/35 px-3 py-2 text-sm font-semibold text-white backdrop-blur hover:bg-black/55 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+              aria-label="上一集"
+              title="上一集"
+            >
+              <SkipBack size={18} />
+              <span>上一集</span>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleEpisodeSwitch(1);
+              }}
+              disabled={!hasNextEpisode}
+              className="pointer-events-auto flex items-center gap-1.5 rounded-lg bg-black/35 px-3 py-2 text-sm font-semibold text-white backdrop-blur hover:bg-black/55 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+              aria-label="下一集"
+              title="下一集"
+            >
+              <span>下一集</span>
+              <SkipForward size={18} />
+            </button>
+          </div>
+        )}
+
 
 
         {/* 加载状态 */}
         {isLoading && !error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-10">
+          <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-[2147483646]">
             <Loader2 size={40} className="text-blue-500 animate-spin" />
           </div>
         )}
