@@ -41,6 +41,7 @@ const formatSecondsToHMS = (totalSeconds) => {
 const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, currentVideo, currentEpisodeIndex, parsedEpisodes, resumeTime, setToastMessage, onEpisodeChange }) => {
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [controlsReady, setControlsReady] = useState(false);
   const [autoSkipAdsEnabled, setAutoSkipAdsEnabled] = useState(() => loadAutoSkipAdsFromStorage());
   /** 与 state 同步，供 HLS 回调 / timeupdate 闭包读取，避免把开关放进播放器 init 的 effect 依赖（否则会整实例重建导致黑屏） */
   const autoSkipAdsEnabledRef = useRef(autoSkipAdsEnabled);
@@ -52,6 +53,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
   const plyrRef = useRef(null);
   const isInitialized = useRef(false);
   const currentSrcRef = useRef(null);
+  const resumeTimeRef = useRef(resumeTime);
   const playbackMetaRef = useRef({ currentVideo, currentEpisodeIndex, parsedEpisodes });
   const [retryKey, setRetryKey] = useState(0);
   const playerId = useRef(Date.now() + Math.random().toString(36).substring(2, 10)); // 生成唯一ID
@@ -70,8 +72,10 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
   const topOverlayTimeoutRef = useRef(null);
   const gestureRef = useRef(null);
   const playerReadyCleanupRef = useRef(null);
+  const episodeButtonsCleanupRef = useRef(null);
   const lastNonZeroVolumeRef = useRef(1);
   const episodeNavRef = useRef({ currentEpisodeIndex, parsedEpisodes, onEpisodeChange });
+  resumeTimeRef.current = resumeTime;
   playbackMetaRef.current = { currentVideo, currentEpisodeIndex, parsedEpisodes };
   episodeNavRef.current = { currentEpisodeIndex, parsedEpisodes, onEpisodeChange };
   const hasPreviousEpisode = currentEpisodeIndex > 0;
@@ -192,13 +196,12 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
 
   // 初始化播放器
   useEffect(() => {
-    if (!src || !videoRef.current || isInitialized.current) return;
+    if (!videoRef.current || isInitialized.current) return;
 
     const video = videoRef.current;
 
     // 标记为已初始化
     isInitialized.current = true;
-    currentSrcRef.current = src;
 
     const initPlayer = async () => {
       try {
@@ -206,107 +209,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
         const PlyrModule = await import('plyr');
         const Plyr = PlyrModule.default;
         await import('plyr/dist/plyr.css');
-
-        // HLS 处理
-        if (src.includes('.m3u8')) {
-          // 动态导入hls.js
-          const HlsModule = await import('hls.js');
-          const Hls = HlsModule.default;
-
-          if (Hls.isSupported()) {
-            const hls = new Hls({
-              maxBufferLength: 30,
-              maxMaxBufferLength: 60,
-              startLevel: -1, // 自动选择最佳质量
-              enableWorker: true,
-              lowLatencyMode: false,
-              debug: false
-            });
-
-            hlsRef.current = hls;
-            hlsInstances.set(playerId.current, hls);
-
-            hls.loadSource(src);
-            hls.attachMedia(video);
-
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-              // HLS加载完成后初始化Plyr
-              initPlyr(Plyr);
-            });
-
-            // HLS 加载完成后，也尝试恢复播放进度
-            hls.on(Hls.Events.LEVEL_LOADED, (event, data) => {
-              const details = data?.details || hls.levels?.[hls.currentLevel]?.details;
-              const levelUrl = data?.levelInfo?.url?.[0] || data?.url || src;
-              adRangesRef.current = detectAdRangesFromLevel(details, levelUrl);
-              if (adRangesRef.current.length > 0) {
-                console.log('🧩 已识别疑似广告区间:', adRangesRef.current);
-                if (setToastMessage) {
-                  const now = Date.now();
-                  if (now - lastToastRef.current.detectAt > 3000) {
-                    lastToastRef.current.detectAt = now;
-                    setToastMessage(`已识别疑似广告区间，自动跳过：${autoSkipAdsEnabledRef.current ? '开' : '关'}`);
-                  }
-                }
-              } else {
-                console.log('🧩 未识别到可跳过广告区间');
-              }
-
-              // 延迟一点时间，确保视频元数据已加载
-              setTimeout(() => {
-                if (video.duration > 0 && resumeTime > 0 && !hasRestoredTimeRef.current) {
-                  // 恢复时间减去5秒，让用户有一些上下文
-                  const adjustedResumeTime = Math.max(0, resumeTime - 5);
-                  const safeResumeTime = Math.min(adjustedResumeTime, video.duration - 1);
-                  if (safeResumeTime > 0) {
-                    hasRestoredTimeRef.current = true;
-                    video.currentTime = safeResumeTime;
-                    if (plyrRef.current) {
-                      plyrRef.current.currentTime = safeResumeTime;
-                    }
-                    console.log('✅ HLS 恢复播放进度:', safeResumeTime, '/', video.duration, '(原始时间:', resumeTime, ')');
-                  }
-                }
-              }, 300);
-            });
-
-            hls.on(Hls.Events.ERROR, (event, data) => {
-              if (data.fatal) {
-                switch (data.type) {
-                  case Hls.ErrorTypes.NETWORK_ERROR:
-                    console.error('网络错误，尝试恢复...');
-                    hls.startLoad();
-                    break;
-                  case Hls.ErrorTypes.MEDIA_ERROR:
-                    console.error('媒体错误，尝试恢复...');
-                    hls.recoverMediaError();
-                    break;
-                  default:
-                    console.error('HLS播放错误:', data);
-                    setError('播放出错，请尝试切换源');
-                    setIsLoading(false);
-                    hls.destroy();
-                    break;
-                }
-              }
-            });
-          } else {
-            // HLS不支持，尝试原生播放
-            video.src = src;
-            video.addEventListener('loadedmetadata', () => initPlyr(Plyr));
-            video.addEventListener('error', handleVideoError);
-          }
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-          // 原生 HLS 支持 (iOS/Mac)
-          video.src = src;
-          video.addEventListener('loadedmetadata', () => initPlyr(Plyr));
-          video.addEventListener('error', handleVideoError);
-        } else {
-          // 普通视频
-          video.src = src;
-          video.addEventListener('loadedmetadata', () => initPlyr(Plyr));
-          video.addEventListener('error', handleVideoError);
-        }
+        initPlyr(Plyr);
 
       } catch (err) {
         console.error('❌ 初始化播放器失败:', err);
@@ -371,23 +274,24 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
 
       // 恢复播放进度的函数
       const restorePlaybackTime = () => {
-        if (resumeTime && resumeTime > 0 && !hasRestoredTimeRef.current && video.duration > 0) {
+        const latestResumeTime = resumeTimeRef.current || 0;
+        if (latestResumeTime > 0 && !hasRestoredTimeRef.current && video.duration > 0) {
           // 恢复时间减去5秒，让用户有一些上下文
-          const adjustedResumeTime = Math.max(0, resumeTime - 5);
+          const adjustedResumeTime = Math.max(0, latestResumeTime - 5);
           // 确保恢复时间不超过视频总时长
           const safeResumeTime = Math.min(adjustedResumeTime, video.duration - 1);
           if (safeResumeTime > 0) {
             hasRestoredTimeRef.current = true;
             video.currentTime = safeResumeTime;
             plyr.currentTime = safeResumeTime;
-            console.log('✅ 恢复播放进度:', safeResumeTime, '/', video.duration, '(原始时间:', resumeTime, ')');
+            console.log('✅ 恢复播放进度:', safeResumeTime, '/', video.duration, '(原始时间:', latestResumeTime, ')');
           }
         }
       };
 
       // 监听Plyr事件
-      plyr.on('ready', () => {
-        setIsLoading(false);
+      const setupPlayerControls = () => {
+        if (playerReadyCleanupRef.current) return;
         // 尝试恢复播放进度
         restorePlaybackTime();
 
@@ -444,36 +348,8 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
         plyr.on('enterfullscreen', lockLandscape);
         plyr.on('exitfullscreen', unlockOrientation);
 
-        let previousEpisodeBtn = null;
-        let nextEpisodeBtn = null;
         const controlsElement = playerContainerRef.current?.querySelector('.plyr__controls');
-        const playButton = controlsElement?.querySelector('button[data-plyr="play"]');
-        const createEpisodeButton = (direction) => {
-          const button = document.createElement('button');
-          const isPrevious = direction < 0;
-          button.type = 'button';
-          button.className = 'plyr__control episode-skip-control';
-          button.dataset.episodeDirection = isPrevious ? 'previous' : 'next';
-          button.setAttribute('aria-label', isPrevious ? '上一集' : '下一集');
-          button.setAttribute('title', isPrevious ? '上一集' : '下一集');
-          button.disabled = isPrevious ? !hasPreviousEpisode : !hasNextEpisode;
-          button.innerHTML = isPrevious
-            ? '<span class="episode-skip-control__icon">‹</span>'
-            : '<span class="episode-skip-control__icon">›</span>';
-          button.addEventListener('click', (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            handleEpisodeSwitch(direction);
-          });
-          return button;
-        };
-
-        if (controlsElement && playButton && parsedEpisodes?.length > 1) {
-          previousEpisodeBtn = createEpisodeButton(-1);
-          nextEpisodeBtn = createEpisodeButton(1);
-          controlsElement.insertBefore(previousEpisodeBtn, playButton);
-          playButton.insertAdjacentElement('afterend', nextEpisodeBtn);
-        }
+        setControlsReady(Boolean(controlsElement));
 
         const volumeElement = controlsElement?.querySelector('.plyr__volume');
         const volumeInput = volumeElement?.querySelector('input[type="range"]');
@@ -490,6 +366,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
         const toggleVolumePanel = (event) => {
           event.preventDefault();
           event.stopPropagation();
+          event.currentTarget?.blur();
           volumeElement?.classList.toggle('is-volume-open');
         };
         const closeVolumePanelOnOutsideClick = (event) => {
@@ -898,8 +775,6 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
           plyr.off?.('enterfullscreen', lockLandscape);
           plyr.off?.('exitfullscreen', unlockOrientation);
           unlockOrientation();
-          previousEpisodeBtn?.remove();
-          nextEpisodeBtn?.remove();
           volumeInput?.removeEventListener('input', updateVolumeValue);
           volumeHitboxEl?.removeEventListener('pointerdown', startVolumePointer);
           muteButton?.removeEventListener('click', toggleVolumePanel, true);
@@ -918,7 +793,9 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
           video.removeEventListener('mouseup', endGesture);
           video.removeEventListener('mouseleave', endGesture);
         };
-      });
+      };
+      plyr.on('ready', setupPlayerControls);
+      setTimeout(setupPlayerControls, 0);
 
       plyr.on('canplay', () => {
         setIsLoading(false);
@@ -938,7 +815,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
 
       // 监听 timeupdate 事件，如果还没有恢复且视频已经开始播放，尝试恢复
       const checkResumeOnTimeUpdate = () => {
-        if (resumeTime && resumeTime > 0 && !hasRestoredTimeRef.current && video.duration > 0) {
+        if ((resumeTimeRef.current || 0) > 0 && !hasRestoredTimeRef.current && video.duration > 0) {
           restorePlaybackTime();
         }
       };
@@ -1106,7 +983,6 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
       // 尝试自动播放
       plyr.play().catch(err => {
         console.warn('自动播放失败:', err);
-        setIsLoading(false);
       });
     };
 
@@ -1147,6 +1023,10 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
         playerReadyCleanupRef.current();
         playerReadyCleanupRef.current = null;
       }
+      if (episodeButtonsCleanupRef.current) {
+        episodeButtonsCleanupRef.current();
+        episodeButtonsCleanupRef.current = null;
+      }
       gestureRef.current = null;
 
       if (plyrRef.current) {
@@ -1168,6 +1048,7 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
       }
 
       isInitialized.current = false;
+      setControlsReady(false);
       hasRestoredTimeRef.current = false;
       adRangesRef.current = [];
       lastAutoSkipRef.current = { at: 0, target: 0 };
@@ -1182,6 +1063,9 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
   }, [retryKey]);
 
   useEffect(() => {
+    let cancelled = false;
+    let cleanupSourceListeners = () => {};
+
     const switchSource = async () => {
       const video = videoRef.current;
       if (!src || !video || !isInitialized.current || currentSrcRef.current === src) return;
@@ -1196,6 +1080,36 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
       adRangesRef.current = [];
       lastAutoSkipRef.current = { at: 0, target: 0 };
       lastToastRef.current = { detectAt: 0, skipAt: 0 };
+
+      const handleCanPlay = () => {
+        if (cancelled) return;
+        if (sourceLoadTimeoutRef.current) {
+          clearTimeout(sourceLoadTimeoutRef.current);
+          sourceLoadTimeoutRef.current = null;
+        }
+        cleanupSourceListeners();
+        video.style.opacity = '';
+        setIsLoading(false);
+        plyrRef.current?.play().catch(() => {});
+      };
+      const handleSourceError = (event) => {
+        if (cancelled) return;
+        console.error('❌ Video元素错误:', event);
+        if (sourceLoadTimeoutRef.current) {
+          clearTimeout(sourceLoadTimeoutRef.current);
+          sourceLoadTimeoutRef.current = null;
+        }
+        cleanupSourceListeners();
+        video.style.opacity = '';
+        setError('播放出错，请尝试切换源');
+        setIsLoading(false);
+      };
+      cleanupSourceListeners = () => {
+        video.removeEventListener('canplay', handleCanPlay);
+        video.removeEventListener('error', handleSourceError);
+      };
+      video.addEventListener('canplay', handleCanPlay);
+      video.addEventListener('error', handleSourceError);
 
       if (hlsRef.current) {
         hlsRef.current.destroy();
@@ -1228,12 +1142,60 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
             hls.loadSource(src);
             hls.attachMedia(video);
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
-              plyrRef.current?.play().catch(() => setIsLoading(false));
+              plyrRef.current?.play().catch(() => {});
             });
             hls.on(Hls.Events.LEVEL_LOADED, (event, data) => {
               const details = data?.details || hls.levels?.[hls.currentLevel]?.details;
               const levelUrl = data?.levelInfo?.url?.[0] || data?.url || src;
               adRangesRef.current = detectAdRangesFromLevel(details, levelUrl);
+              if (adRangesRef.current.length > 0) {
+                console.log('已识别疑似广告区间:', adRangesRef.current);
+                if (setToastMessage) {
+                  const now = Date.now();
+                  if (now - lastToastRef.current.detectAt > 3000) {
+                    lastToastRef.current.detectAt = now;
+                    setToastMessage(`已识别疑似广告区间，自动跳过：${autoSkipAdsEnabledRef.current ? '开' : '关'}`);
+                  }
+                }
+              } else {
+                console.log('未识别到可跳过广告区间');
+              }
+
+              setTimeout(() => {
+                const latestResumeTime = resumeTimeRef.current || 0;
+                if (cancelled || video.duration <= 0 || latestResumeTime <= 0 || hasRestoredTimeRef.current) return;
+                const adjustedResumeTime = Math.max(0, latestResumeTime - 5);
+                const safeResumeTime = Math.min(adjustedResumeTime, video.duration - 1);
+                if (safeResumeTime > 0) {
+                  hasRestoredTimeRef.current = true;
+                  video.currentTime = safeResumeTime;
+                  if (plyrRef.current) {
+                    plyrRef.current.currentTime = safeResumeTime;
+                  }
+                  console.log('✅ HLS 恢复播放进度:', safeResumeTime, '/', video.duration, '(原始时间:', latestResumeTime, ')');
+                }
+              }, 300);
+            });
+            hls.on(Hls.Events.ERROR, (event, data) => {
+              if (cancelled || !data.fatal) return;
+              switch (data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                  console.error('网络错误，尝试恢复...');
+                  hls.startLoad();
+                  break;
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                  console.error('媒体错误，尝试恢复...');
+                  hls.recoverMediaError();
+                  break;
+                default:
+                  console.error('HLS播放错误:', data);
+                  cleanupSourceListeners();
+                  video.style.opacity = '';
+                  setError('播放出错，请尝试切换源');
+                  setIsLoading(false);
+                  hls.destroy();
+                  break;
+              }
             });
           } else {
             video.src = src;
@@ -1244,17 +1206,9 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
           video.load();
         }
 
-        const handleCanPlay = () => {
-          if (sourceLoadTimeoutRef.current) {
-            clearTimeout(sourceLoadTimeoutRef.current);
-            sourceLoadTimeoutRef.current = null;
-          }
-          video.style.opacity = '';
-          setIsLoading(false);
-          plyrRef.current?.play().catch(() => setIsLoading(false));
-        };
-        video.addEventListener('canplay', handleCanPlay, { once: true });
         sourceLoadTimeoutRef.current = setTimeout(() => {
+          if (cancelled) return;
+          cleanupSourceListeners();
           video.style.opacity = '';
           setError('播放加载超时，请尝试切换源');
           setIsLoading(false);
@@ -1262,7 +1216,9 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
         }, 20000);
         currentSrcRef.current = src;
       } catch (err) {
+        if (cancelled) return;
         console.error('切换播放源失败:', err);
+        cleanupSourceListeners();
         video.style.opacity = '';
         setError('播放出错，请尝试切换源');
         setIsLoading(false);
@@ -1270,6 +1226,10 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
     };
 
     switchSource();
+    return () => {
+      cancelled = true;
+      cleanupSourceListeners();
+    };
   }, [src]);
 
   useEffect(() => {
@@ -1280,6 +1240,58 @@ const VideoPlayer = ({ src, poster, title, sourceName, sourceDesc, onBack, curre
     if (previousButton) previousButton.disabled = !hasPreviousEpisode;
     if (nextButton) nextButton.disabled = !hasNextEpisode;
   }, [hasPreviousEpisode, hasNextEpisode]);
+
+  useEffect(() => {
+    if (episodeButtonsCleanupRef.current) {
+      episodeButtonsCleanupRef.current();
+      episodeButtonsCleanupRef.current = null;
+    }
+
+    if (!controlsReady || (parsedEpisodes?.length || 0) <= 1) return;
+
+    const controlsElement = playerContainerRef.current?.querySelector('.plyr__controls');
+    const playButton = controlsElement?.querySelector('button[data-plyr="play"]');
+    if (!controlsElement || !playButton) return;
+
+    controlsElement.querySelectorAll('.episode-skip-control').forEach((button) => button.remove());
+
+    const createEpisodeButton = (direction) => {
+      const button = document.createElement('button');
+      const isPrevious = direction < 0;
+      button.type = 'button';
+      button.className = 'plyr__control episode-skip-control';
+      button.dataset.episodeDirection = isPrevious ? 'previous' : 'next';
+      button.setAttribute('aria-label', isPrevious ? '上一集' : '下一集');
+      button.setAttribute('title', isPrevious ? '上一集' : '下一集');
+      button.disabled = isPrevious ? !hasPreviousEpisode : !hasNextEpisode;
+      button.innerHTML = isPrevious
+        ? '<span class="episode-skip-control__icon">‹</span>'
+        : '<span class="episode-skip-control__icon">›</span>';
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        handleEpisodeSwitch(direction);
+      });
+      return button;
+    };
+
+    const previousEpisodeBtn = createEpisodeButton(-1);
+    const nextEpisodeBtn = createEpisodeButton(1);
+    controlsElement.insertBefore(previousEpisodeBtn, playButton);
+    playButton.insertAdjacentElement('afterend', nextEpisodeBtn);
+
+    episodeButtonsCleanupRef.current = () => {
+      previousEpisodeBtn.remove();
+      nextEpisodeBtn.remove();
+    };
+
+    return () => {
+      if (episodeButtonsCleanupRef.current) {
+        episodeButtonsCleanupRef.current();
+        episodeButtonsCleanupRef.current = null;
+      }
+    };
+  }, [controlsReady, parsedEpisodes?.length, hasPreviousEpisode, hasNextEpisode]);
 
   // 当 resumeTime 变化时，重置恢复标志，以便新的 resumeTime 能够生效
   useEffect(() => {

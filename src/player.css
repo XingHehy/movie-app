@@ -169,6 +169,10 @@
     opacity: 1;
 }
 
+.player-shell .plyr__volume--vertical.is-volume-open .plyr__tooltip {
+    display: none !important;
+}
+
 .player-shell .plyr__volume--vertical .plyr__volume-value {
     position: absolute;
     left: 50%;

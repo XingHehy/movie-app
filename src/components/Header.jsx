@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Play, Settings, X, History, Clock, Trash2 } from 'lucide-react';
+import { Search, Play, Settings, X, History, Clock, Trash2, LogOut } from 'lucide-react';
 import { stopAllPlayers } from '../utils/playerManager.js';
 import { 
     getSearchHistory, 
@@ -323,6 +323,7 @@ const Header = ({
                                                 }}
                                                 className="text-xs text-slate-400 hover:text-red-400 transition-colors p-1"
                                                 title="清空全部"
+                                                aria-label="清空观看历史"
                                             >
                                                 <Trash2 size={14} />
                                             </button>
@@ -446,6 +447,19 @@ const Header = ({
                                 <Settings size={18} />
                             </button>
                         )}
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setShowWatchHistory(false);
+                                handleLogout?.();
+                            }}
+                            className="p-2 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-full transition-colors"
+                            title="退出登录"
+                            aria-label="退出登录"
+                        >
+                            <LogOut size={18} />
+                        </button>
                     </div>
                 </div>
 
@@ -788,6 +802,7 @@ const Header = ({
                                             }}
                                             className="text-xs text-slate-400 hover:text-red-400 transition-colors p-1"
                                             title="清空全部"
+                                            aria-label="清空观看历史"
                                         >
                                             <Trash2 size={14} />
                                         </button>
@@ -911,6 +926,19 @@ const Header = ({
                             <Settings size={18} />
                         </button>
                     )}
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setShowWatchHistory(false);
+                            handleLogout?.();
+                        }}
+                        className="p-2 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-full transition-colors"
+                        title="退出登录"
+                        aria-label="退出登录"
+                    >
+                        <LogOut size={18} />
+                    </button>
                 </div>
 
             </div>

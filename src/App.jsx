@@ -36,6 +36,7 @@ export default function App() {
 
   const navigate = useNavigate();
   const location = useLocation();
+  const currentYear = new Date().getFullYear();
 
   // Determine 'view' and 'isSearching' for Header compatibility
   const isSearching = location.pathname.startsWith('/search');
@@ -141,8 +142,8 @@ export default function App() {
     setUserRole(role);
   };
 
-  const handleLogout = async () => {
-    try { await api.logout(); } catch (err) { }
+  const handleLogout = () => {
+    sessionStorage.removeItem('auth_token');
     setIsAuthenticated(false);
     setUserRole(null);
     stopAllPlayers();
@@ -226,7 +227,7 @@ export default function App() {
       </main>
 
       <footer className="border-t border-white/5 py-8 mt-auto text-center px-4">
-        <p className="text-slate-600 text-sm mb-2">© 2025 极影 · 仅供学习交流</p>
+        <p className="text-slate-600 text-sm mb-2">© {currentYear} 极影 · 仅供学习交流</p>
         <p className="text-slate-700 text-xs max-w-2xl mx-auto">
           本站不提供任何视频存储和制作服务，所有内容均来源于互联网，仅提供Web页面浏览服务。若本站收录内容无意侵犯了贵司版权，请联系源站删除。
         </p>
